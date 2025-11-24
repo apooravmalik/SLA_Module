@@ -1,0 +1,16 @@
+# Web Framework and ASGI Server
+fastapi
+uvicorn[standard]
+
+# Database and ORM
+sqlalchemy
+pyodbc
+
+# Configuration
+pydantic
+pydantic-settings
+python-dotenv
+
+# Security (JWT and Password Hashing)
+python-jose[cryptography]
+passlib[bcrypt]

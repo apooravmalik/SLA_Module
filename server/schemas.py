@@ -1,7 +1,7 @@
 # schemas.py
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from decimal import Decimal
 
 # --- Base Schema for Creating New Users (Used by Admin/Management) ---
@@ -67,3 +67,38 @@ class DashboardKPIs(BaseModel):
     class Config:
         from_attributes = True
         json_encoders = {Decimal: lambda v: str(v)}
+        
+class FilterOption(BaseModel):
+    """Schema for an individual dropdown option."""
+    id: int = Field(..., description="The Foreign Key (ID) used for filtering.")
+    name: str = Field(..., description="The display name for the user.")
+
+class MasterFiltersResponse(BaseModel):
+    """Unified response containing all master lookup data."""
+    zones: list[FilterOption]
+    streets: list[FilterOption]
+    units: list[FilterOption]
+    
+class ReportRow(BaseModel):
+    # Map SQL columns to Pydantic attributes
+    NVR_PRK: int
+    nvrAlias_TXT: Optional[str] = None
+    nvrIPAddress_TXT: Optional[str] = None
+    Camera_PRK: int
+    camName_TXT: Optional[str] = None
+    gclZone_FRK: Optional[int] = None
+    ZoneName: Optional[str] = None
+    gclStreet_FRK: Optional[int] = None
+    StreetName: Optional[str] = None
+    gclBuilding_FRK: Optional[int] = None
+    BuildingName: Optional[str] = None
+    gclUnit_FRK: Optional[int] = None
+    UnitName: Optional[str] = None
+    OfflineTime: Optional[datetime] = None
+    OnlineTime: Optional[datetime] = None
+    OfflineMinutes: Optional[int] = None
+    PenaltyAmount: Decimal = Field(..., description="Penalty amount calculated for downtime.")
+
+class ReportResponse(BaseModel):
+    total_rows: int
+    data: list[ReportRow]
