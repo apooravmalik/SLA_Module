@@ -1,4 +1,4 @@
-// src/components/ReportPage.jsx
+// src/components/ReportPage.jsx (FIXED ERROR HANDLING)
 import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from './Navbar'; 
 import { FaDownload, FaArrowLeft } from 'react-icons/fa';
@@ -83,6 +83,28 @@ const timelineOptions = [
     { value: 'month', label: 'Last 30 Days' },
 ];
 
+// Helper function to format error messages
+const formatErrorMessage = (errorData) => {
+    if (typeof errorData === 'string') {
+        return errorData;
+    }
+    
+    if (errorData.detail) {
+        // Check if detail is an array of validation errors (422 response)
+        if (Array.isArray(errorData.detail)) {
+            return errorData.detail
+                .map(err => `${err.loc?.join('.')}: ${err.msg}`)
+                .join('; ');
+        }
+        // If detail is a string
+        if (typeof errorData.detail === 'string') {
+            return errorData.detail;
+        }
+    }
+    
+    return 'An unknown error occurred';
+};
+
 const ReportPage = ({ onGoToDashboard, onLogout }) => {
     const [filters, setFilters] = useState({});
     const [reportData, setReportData] = useState([]);
@@ -96,7 +118,13 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
         const params = new URLSearchParams();
         Object.entries(filters).forEach(([key, value]) => {
             if (value !== null && value !== undefined && value !== "") {
-                params.append(key, String(value));
+                if (Array.isArray(value)) {
+                    value.forEach(id => params.append(key, String(id)));
+                } else if (value instanceof Date) {
+                    params.append(key, value.toISOString());
+                } else {
+                    params.append(key, String(value));
+                }
             }
         });
         return params.toString();
@@ -153,6 +181,9 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
 
         const queryString = filtersToQueryString(currentFilters);
         
+        console.log("REPORT API Request (Filters):", currentFilters);
+        console.log("REPORT API Request (Query String):", queryString);
+        
         try {
             const response = await fetch(`${REPORT_URL}?${queryString}`, {
                 method: 'GET',
@@ -166,11 +197,18 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
                 const data = await response.json();
                 setReportData(data.data || []);
                 setTotalRows(data.total_rows || 0);
-            } else if (response.status === 403) {
-                setGlobalError("Access Denied: You do not have the required permissions.");
             } else {
+                // FIXED: Properly handle error responses
                 const errorData = await response.json().catch(() => ({}));
-                setGlobalError(errorData.detail || 'Failed to load report data.');
+                const errorMessage = formatErrorMessage(errorData);
+                
+                if (response.status === 403) {
+                    setGlobalError("Access Denied: You do not have the required permissions.");
+                } else if (response.status === 422) {
+                    setGlobalError(`Validation Error: ${errorMessage}`);
+                } else {
+                    setGlobalError(errorMessage || `Failed to load report data (Status: ${response.status})`);
+                }
             }
         } catch (error) {
             setGlobalError('Network error while fetching report data.');
@@ -188,7 +226,7 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
 
     // --- Download Logic ---
     const handleDownload = async (format) => {
-        setDownloadDropdownOpen(false); // Close dropdown after selection
+        setDownloadDropdownOpen(false);
         setLoading(true);
         setGlobalError(null);
         
@@ -304,7 +342,7 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
                 </div>
             </div>
 
-            {/* Error Display */}
+            {/* Error Display - FIXED to handle objects properly */}
             {globalError && (
                 <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative my-4" role="alert">
                     <strong className="font-bold">Error: </strong>
