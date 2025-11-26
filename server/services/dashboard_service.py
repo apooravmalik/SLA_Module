@@ -1,19 +1,17 @@
 # services/dashboard_service.py
 import asyncio
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List # <-- Added List
 from decimal import Decimal
 from sqlalchemy.orm import Session
 from sqlalchemy import text # Essential for raw SQL execution
 from datetime import datetime, timedelta
 from schemas import DashboardFilters, DashboardKPIs
 
-# Assuming your schema is 'dbo' as defined in database.py
 DB_SCHEMA = "dbo"
-STATUS_OPEN_FK = 1  # Status code for 'Open' incidents
-STATUS_CLOSED_FK = 2 # Status code for 'Closed' incidents
+STATUS_OPEN_FK = 1
+STATUS_CLOSED_FK = 2
 
-# --- 1. Raw SQL Execution Helper ---
-
+# --- 1. Raw SQL Execution Helper (Unchanged) ---
 def execute_count_query(db: Session, table_name: str, conditions: Optional[str] = None) -> int:
     """Executes a COUNT(*) query with optional WHERE clause conditions."""
     query_base = f"SELECT COUNT(*) FROM {DB_SCHEMA}.{table_name}"
@@ -30,23 +28,28 @@ def execute_count_query(db: Session, table_name: str, conditions: Optional[str] 
         print(f"Database error executing count query for {table_name}: {e}")
         return 0
 
-# --- 2. Filter Clause Builder (for IncidentLog_TBL) ---
-
+# --- 2. Filter Clause Builder (MODIFIED for List[int]) ---
 def build_incident_filter_clause(filters: DashboardFilters, include_status: Optional[str] = None) -> str:
     """Builds the SQL WHERE clause for IncidentLog_TBL based on user filters."""
     conditions = []
     
-    # Map filters to IncidentLog_TBL Foreign Keys
-    if filters.zone_id is not None:
-        conditions.append(f"inlZone_FRK = {filters.zone_id}")
-    if filters.street_id is not None:
-        conditions.append(f"inlStreet_FRK = {filters.street_id}")
-    if filters.unit_id is not None:
-        conditions.append(f"inlUnit_FRK = {filters.unit_id}")
+    # Helper to generate SQL IN clause for raw queries
+    def create_in_clause(field_name: str, values: Optional[List[int]]) -> Optional[str]:
+        if values is None or not values:
+            return None
+        # Convert list of ints to a comma-separated string for SQL IN clause
+        id_list = ', '.join(map(str, values))
+        return f"{field_name} IN ({id_list})"
+
+    # Map filters to IncidentLog_TBL Foreign Keys (using IN clause)
+    conditions.append(create_in_clause("inlZone_FRK", filters.zone_id))
+    conditions.append(create_in_clause("inlStreet_FRK", filters.street_id))
+    conditions.append(create_in_clause("inlUnit_FRK", filters.unit_id))
     
+    # Filter out None values before joining
+    conditions = [c for c in conditions if c is not None]
+
     # Date filters
-    # NOTE: Using f-strings for date filtering here for simplicity, 
-    # but parameterized queries are safer. We will use parameters in penalty query.
     if filters.date_from is not None:
         date_str = filters.date_from.strftime("'%Y-%m-%d %H:%M:%S'")
         conditions.append(f"inlDateTime_DTM >= {date_str}")
@@ -62,8 +65,7 @@ def build_incident_filter_clause(filters: DashboardFilters, include_status: Opti
 
     return " AND ".join(conditions)
 
-# --- 3. Synchronous Static KPI Calculation ---
-
+# --- 3. Synchronous Static KPI Calculation (Unchanged) ---
 def get_static_kpis(db: Session) -> Dict[str, int]:
     """Retrieves total counts for Zones, Streets, and Units/Buildings (Non-Filtered)."""
     return {
@@ -89,15 +91,15 @@ async def calculate_closed_incidents(db: Session, filters: DashboardFilters) -> 
 
 async def calculate_penalty(db: Session, filters: DashboardFilters) -> Decimal:
     """
-    Executes the complex SLA penalty calculation query using bound parameters.
+    Executes the complex SLA penalty calculation query using IN clause bound parameters.
     """
-    await asyncio.sleep(0.3) # Simulate a heavy query
+    await asyncio.sleep(0.3) 
 
     # --- 1. Determine Dynamic Start/End Dates ---
     end_date = filters.date_to if filters.date_to else datetime.now()
     start_date = filters.date_from if filters.date_from else end_date - timedelta(hours=24)
     
-    # --- 2. The Integrated SQL Query with SQLAlchemy Parameters ---
+    # --- 2. The Integrated SQL Query with SQLAlchemy Parameters---
     penalty_query = text(f"""
         WITH MonthData AS (
             SELECT *
@@ -149,10 +151,10 @@ async def calculate_penalty(db: Session, filters: DashboardFilters) -> Decimal:
             SUM(PenaltyAmount) AS TotalPenalty
         FROM PenaltyData
         WHERE
-            (:ZoneId IS NULL OR gclZone_FRK = :ZoneId)
-            AND (:StreetId IS NULL OR gclStreet_FRK = :StreetId)
-            AND (:UnitId IS NULL OR gclUnit_FRK = :UnitId);
-            -- BuildingId is omitted here as it's not present in your DashboardFilters schema
+            -- MODIFIED: Use IN clause with bound parameters
+            (:ZoneIds IS NULL OR gclZone_FRK IN :ZoneIds)
+            AND (:StreetIds IS NULL OR gclStreet_FRK IN :StreetIds)
+            AND (:UnitIds IS NULL OR gclUnit_FRK IN :UnitIds);
     """)
     
     # --- 3. Execute Query with Bound Parameters ---
@@ -161,34 +163,30 @@ async def calculate_penalty(db: Session, filters: DashboardFilters) -> Decimal:
         params = {
             'start_date': start_date,
             'end_date': end_date,
-            'ZoneId': filters.zone_id,
-            'StreetId': filters.street_id,
-            'UnitId': filters.unit_id,
+            'ZoneIds': filters.zone_id,
+            'StreetIds': filters.street_id,
+            'UnitIds': filters.unit_id,
         }
         
         result = db.execute(penalty_query, params).scalar_one()
         return Decimal(str(result)) if result is not None else Decimal("0.00")
     except Exception as e:
-        # Re-raise with context to be caught by asyncio.gather
         raise Exception(f"SLA Penalty Calculation Failed: {e}")
 
-# --- 5. Main Aggregation Function (Concurrent Execution) ---
+# --- 5. Main Aggregation Function ---
 
 async def get_dashboard_data(db: Session, filters: DashboardFilters) -> DashboardKPIs:
     
     static_kpis = get_static_kpis(db)
     
-    # Define the asynchronous tasks for dynamic KPIs 
     tasks = {
         'total_open_incidents': calculate_open_incidents(db, filters),
         'total_closed_incidents': calculate_closed_incidents(db, filters),
         'total_penalty': calculate_penalty(db, filters), 
     }
 
-    # Execute all tasks concurrently and catch exceptions
     results = await asyncio.gather(*tasks.values(), return_exceptions=True)
 
-    # Process results and handle errors gracefully
     kpi_data = {}
     errors = {}
     keys = list(tasks.keys())
@@ -201,7 +199,6 @@ async def get_dashboard_data(db: Session, filters: DashboardFilters) -> Dashboar
         else:
             kpi_data[key] = result
             
-    # Combine all data into the final schema
     return DashboardKPIs(
         **static_kpis, 
         **kpi_data, 

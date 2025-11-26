@@ -42,11 +42,12 @@ class UserResponse(BaseModel):
 # --- Request Schema for Dashboard Filters ---
 class DashboardFilters(BaseModel):
     """Filters applied to the dashboard queries."""
-    zone_id: Optional[int] = None
-    street_id: Optional[int] = None
-    unit_id: Optional[int] = None
-    date_from: Optional[datetime] = None  # Calendar/Date Filter Start
-    date_to: Optional[datetime] = None    # Calendar/Date Filter End
+    # CHANGED TO List[int] for multi-select
+    zone_id: Optional[List[int]] = None
+    street_id: Optional[List[int]] = None
+    unit_id: Optional[List[int]] = None
+    date_from: Optional[datetime] = None
+    date_to: Optional[datetime] = None
 
 # --- Response Schemas for Dashboard KPIs ---
 class DashboardKPIs(BaseModel):
@@ -75,9 +76,9 @@ class FilterOption(BaseModel):
 
 class MasterFiltersResponse(BaseModel):
     """Unified response containing all master lookup data."""
-    zones: list[FilterOption]
-    streets: list[FilterOption]
-    units: list[FilterOption]
+    zones: List[FilterOption]
+    streets: List[FilterOption]
+    units: List[FilterOption]
     
 class ReportRow(BaseModel):
     # Map SQL columns to Pydantic attributes

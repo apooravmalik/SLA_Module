@@ -2,8 +2,6 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from datetime import datetime, timedelta
-from decimal import Decimal
-from typing import List, Dict, Any
 from schemas import DashboardFilters, ReportRow, ReportResponse
 
 DB_SCHEMA = "dbo"
@@ -14,7 +12,7 @@ def get_detailed_report(db: Session, filters: DashboardFilters) -> ReportRespons
     end_date = filters.date_to if filters.date_to else datetime.now()
     start_date = filters.date_from if filters.date_from else end_date - timedelta(hours=24)
     
-    # 2. SQL Query with Bound Parameters (Your full query)
+    # 2. SQL Query with Bound Parameters
     report_query = text(f"""
         WITH MonthData AS (
             SELECT *
@@ -55,7 +53,7 @@ def get_detailed_report(db: Session, filters: DashboardFilters) -> ReportRespons
             g.gclStreet_FRK,
             s.strName_TXT AS StreetName,
             g.gclBuilding_FRK,
-            b.bldBuildingName_TXT AS BuildingName, -- Assuming BuildingName comes from a Building_TBL or similar
+            b.bldBuildingName_TXT AS BuildingName,
             g.gclUnit_FRK,
             u.untUnitName_TXT AS UnitName,
             lo.OfflineTime,
@@ -73,13 +71,14 @@ def get_detailed_report(db: Session, filters: DashboardFilters) -> ReportRespons
         LEFT JOIN {DB_SCHEMA}.CameraZone_TBL z ON z.CameraZone_PRK = g.gclZone_FRK
         LEFT JOIN {DB_SCHEMA}.Street_TBL s ON s.Street_PRK = g.gclStreet_FRK
         LEFT JOIN {DB_SCHEMA}.Unit_TBL u ON u.Unit_PRK = g.gclUnit_FRK
-        LEFT JOIN {DB_SCHEMA}.Building_TBL b ON b.Building_PRK = g.gclBuilding_FRK -- Added Building join
+        LEFT JOIN {DB_SCHEMA}.Building_TBL b ON b.Building_PRK = g.gclBuilding_FRK 
         LEFT JOIN LatestOffline lo ON lo.Device_PRK = cam.Camera_PRK
         LEFT JOIN LatestOnline lon ON lon.Device_PRK = cam.Camera_PRK
         WHERE
-            (:ZoneId IS NULL OR g.gclZone_FRK = :ZoneId)
-            AND (:StreetId IS NULL OR g.gclStreet_FRK = :StreetId)
-            AND (:UnitId IS NULL OR g.gclUnit_FRK = :UnitId)
+            -- MODIFIED: Use IN clause with bound parameters
+            (:ZoneIds IS NULL OR g.gclZone_FRK IN :ZoneIds)
+            AND (:StreetIds IS NULL OR g.gclStreet_FRK IN :StreetIds)
+            AND (:UnitIds IS NULL OR g.gclUnit_FRK IN :UnitIds)
         ORDER BY
             n.NVR_PRK, cam.Camera_PRK;
     """)
@@ -88,9 +87,9 @@ def get_detailed_report(db: Session, filters: DashboardFilters) -> ReportRespons
     params = {
         'start_date': start_date,
         'end_date': end_date,
-        'ZoneId': filters.zone_id,
-        'StreetId': filters.street_id,
-        'UnitId': filters.unit_id,
+        'ZoneIds': filters.zone_id,
+        'StreetIds': filters.street_id,
+        'UnitIds': filters.unit_id,
     }
     
     result = db.execute(report_query, params).mappings().all()

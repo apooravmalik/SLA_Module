@@ -1,5 +1,4 @@
-# routers/dashboard_routers.py
-from typing import Annotated, Optional
+from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 from datetime import datetime
@@ -9,7 +8,6 @@ from database import get_db
 from schemas import DashboardKPIs, DashboardFilters
 from services import dashboard_service
 
-# Define the router
 router = APIRouter(
     prefix="/api/dashboard",
     tags=["Dashboard"]
@@ -19,10 +17,10 @@ router = APIRouter(
 async def get_dashboard_kpis(
     db: Session = Depends(get_db),
     
-    # --- Query Parameters (Filters from Sketch) ---
-    zone_id: Optional[int] = Query(None, description="Filter by specific Zone ID (inlZone_FRK)."),
-    street_id: Optional[int] = Query(None, description="Filter by specific Street ID (inlStreet_FRK)."),
-    unit_id: Optional[int] = Query(None, description="Filter by specific Unit ID (inlUnit_FRK)."),
+    # --- Query Parameters ---
+    zone_id: Optional[List[int]] = Query(None, description="Filter by specific Zone IDs (inlZone_FRK)."),
+    street_id: Optional[List[int]] = Query(None, description="Filter by specific Street IDs (inlStreet_FRK)."),
+    unit_id: Optional[List[int]] = Query(None, description="Filter by specific Unit IDs (inlUnit_FRK)."),
     date_from: Optional[datetime] = Query(None, description="Filter incidents from this date/time (Calendar Start)."),
     date_to: Optional[datetime] = Query(None, description="Filter incidents up to this date/time (Calendar End).")
 ):

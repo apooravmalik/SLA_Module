@@ -1,50 +1,90 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 // src/components/Navbar.jsx
-import React, { useState, useEffect } from 'react';
-
-// NOTE: You'll need a way to pass the active filters back up to the parent component (DashboardPage)
+import React, { useState, useEffect, useCallback } from 'react';
+import MultiSelectDropdown from './MultiSelectDropdown'; // Import MultiSelectDropdown
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'; 
+const MASTER_DATA_URL = `${API_BASE_URL}/master/filters`;
 
-const Navbar = ({ onFilterChange }) => {
-    const [masterData, setMasterData] = useState({ zones: [], streets: [], units: [] });
+const Navbar = ({ onFilterChange, onLogout, currentFilters = {} }) => {
+    // Master data options (full list, or filtered by cascade)
+    const [options, setOptions] = useState({ zones: [], streets: [], units: [] });
+    // Active selections (list of IDs)
     const [filters, setFilters] = useState({ 
-        zone_id: '', 
-        street_id: '', 
-        unit_id: '', 
-        date_from: '', 
-        date_to: '' 
+        zone_id: [], 
+        street_id: [], 
+        unit_id: [], 
+        date_from: currentFilters.date_from || '', 
+        date_to: currentFilters.date_to || '' 
     });
-    
-    // Fetch master data on component mount
-    useEffect(() => {
-        const token = localStorage.getItem('token'); // Assuming token is stored here
+
+    // Helper to build query string for cascading data fetch
+    const buildCascadeQueryString = (filters) => {
+        const params = new URLSearchParams();
+        if (filters.zone_id && filters.zone_id.length > 0) {
+            filters.zone_id.forEach(id => params.append('zone_ids', id));
+        }
+        if (filters.street_id && filters.street_id.length > 0) {
+            filters.street_id.forEach(id => params.append('street_ids', id));
+        }
+        return params.toString();
+    };
+
+    // --- Core Fetching Logic (Cascading) ---
+    const fetchMasterData = useCallback(async (currentFilters) => {
+        const token = localStorage.getItem('token');
         if (!token) return;
 
-        const fetchFilters = async () => {
-            try {
-                const response = await fetch(`${API_BASE_URL}/master/filters`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (response.ok) {
-                    const data = await response.json();
-                    setMasterData(data);
-                }
-            } catch (error) {
-                console.error("Error fetching master filters:", error);
+        const queryString = buildCascadeQueryString(currentFilters);
+        
+        try {
+            const response = await fetch(`${MASTER_DATA_URL}?${queryString}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                setOptions(data);
             }
-        };
-        fetchFilters();
+        } catch (error) {
+            console.error("Error fetching master filters:", error);
+        }
     }, []);
 
-    const handleSelectChange = (e) => {
-        const { name, value } = e.target;
+    // Initial load and cascade effect
+    useEffect(() => {
+        // Fetch data whenever filters change to get cascaded options
+        fetchMasterData(filters);
+    }, [filters, fetchMasterData]); 
+
+    // --- Filter Handlers ---
+    const handleMultiSelectChange = ({ name, value }) => {
+        // 1. Update local state with the new list of IDs
+        const newFilters = { ...filters, [name]: value };
         
-        // Update local state
-        const newFilters = { ...filters, [name]: value === "" ? "" : parseInt(value) };
+        // 2. Clear dependent filters on parent change
+        if (name === 'zone_id') {
+            newFilters.street_id = [];
+            newFilters.unit_id = [];
+        } else if (name === 'street_id') {
+            newFilters.unit_id = [];
+        }
+
         setFilters(newFilters);
         
-        // Notify parent component (DashboardPage) of the change
+        // 3. Notify parent (Dashboard/Report) of the *final* list of filters
         onFilterChange(newFilters);
+        
+        // 4. Debugging: Log applied filters
+        console.log("Filters Applied (Multi-Select):", newFilters);
+    };
+
+    const handleDateChange = (e) => {
+        const { name, value } = e.target;
+        const newFilters = { ...filters, [name]: value };
+        setFilters(newFilters);
+        onFilterChange(newFilters);
+        console.log("Filters Applied (Date Change):", newFilters);
     };
 
     return (
@@ -54,51 +94,45 @@ const Navbar = ({ onFilterChange }) => {
                 {/* Logo */}
                 <h1 className="text-3xl font-bold text-gray-800">LOGO</h1>
                 
-                {/* Filters */}
+                {/* Filters and Logout */}
                 <div className="flex space-x-4 items-center">
                     
-                    {/* Zone Dropdown */}
-                    <select
+                    {/* Zone Dropdown (Triggers Street cascade) */}
+                    <MultiSelectDropdown
                         name="zone_id"
-                        onChange={handleSelectChange}
-                        className="p-2 border border-gray-300 rounded-md focus:ring-secondary-accent focus:border-secondary-accent"
-                    >
-                        <option value="">ZONE (All)</option>
-                        {masterData.zones.map(z => (
-                            <option key={z.id} value={z.id}>{z.name}</option>
-                        ))}
-                    </select>
+                        label="ZONE"
+                        options={options.zones}
+                        selectedIds={filters.zone_id}
+                        onChange={handleMultiSelectChange}
+                    />
 
-                    {/* Street Dropdown */}
-                    <select
+                    {/* Street Dropdown (Triggers Unit cascade) */}
+                    <MultiSelectDropdown
                         name="street_id"
-                        onChange={handleSelectChange}
-                        className="p-2 border border-gray-300 rounded-md focus:ring-secondary-accent focus:border-secondary-accent"
-                    >
-                        <option value="">STREET (All)</option>
-                        {masterData.streets.map(s => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
-                        ))}
-                    </select>
+                        label="STREET"
+                        options={options.streets}
+                        selectedIds={filters.street_id}
+                        onChange={handleMultiSelectChange}
+                        disabled={options.streets.length === 0 && filters.zone_id.length > 0}
+                    />
                     
                     {/* Unit Dropdown */}
-                    <select
+                    <MultiSelectDropdown
                         name="unit_id"
-                        onChange={handleSelectChange}
-                        className="p-2 border border-gray-300 rounded-md focus:ring-secondary-accent focus:border-secondary-accent"
-                    >
-                        <option value="">UNIT (All)</option>
-                        {masterData.units.map(u => (
-                            <option key={u.id} value={u.id}>{u.name}</option>
-                        ))}
-                    </select>
+                        label="UNIT"
+                        options={options.units}
+                        selectedIds={filters.unit_id}
+                        onChange={handleMultiSelectChange}
+                        disabled={options.units.length === 0 && filters.street_id.length > 0}
+                    />
                     
                     {/* Calendar (Date From) */}
                     <input
                         type="date"
                         name="date_from"
-                        onChange={handleSelectChange}
-                        className="p-2 border border-gray-300 rounded-md focus:ring-secondary-accent focus:border-secondary-accent"
+                        value={filters.date_from || ''}
+                        onChange={handleDateChange}
+                        className="p-2 border border-gray-300 rounded-md shadow-sm focus:ring-[#00BFFF] focus:border-[#00BFFF] w-32"
                         title="Date From"
                     />
 
@@ -106,11 +140,21 @@ const Navbar = ({ onFilterChange }) => {
                     <input
                         type="date"
                         name="date_to"
-                        onChange={handleSelectChange}
-                        className="p-2 border border-gray-300 rounded-md focus:ring-secondary-accent focus:border-secondary-accent"
+                        value={filters.date_to || ''}
+                        onChange={handleDateChange}
+                        className="p-2 border border-gray-300 rounded-md shadow-sm focus:ring-[#00BFFF] focus:border-[#00BFFF] w-32"
                         title="Date To"
                     />
-
+                    
+                    {/* Logout Button (if available) */}
+                    {onLogout && (
+                        <button 
+                            onClick={onLogout}
+                            className="py-2 px-4 rounded-lg text-gray-600 hover:text-red-500 transition duration-150"
+                        >
+                            Logout
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

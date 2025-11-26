@@ -20,9 +20,9 @@ def get_report_data(
     db: Session = Depends(get_db),
     
     # Use the same filters as the dashboard
-    zone_id: Optional[int] = Query(None),
-    street_id: Optional[int] = Query(None),
-    unit_id: Optional[int] = Query(None),
+    zone_id: Optional[List[int]] = Query(None),
+    street_id: Optional[List[int]] = Query(None),
+    unit_id: Optional[List[int]] = Query(None),
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
 ):
@@ -63,9 +63,9 @@ def download_report(
     db: Session = Depends(get_db),
     
     # Use the same query parameters for filtering
-    zone_id: Optional[int] = Query(None),
-    street_id: Optional[int] = Query(None),
-    unit_id: Optional[int] = Query(None),
+    zone_id: Optional[List[int]] = Query(None),
+    street_id: Optional[List[int]] = Query(None),
+    unit_id: Optional[List[int]] = Query(None),
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
 ):
