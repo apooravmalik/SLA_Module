@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 // src/components/ReportPage.jsx (FIXED ERROR HANDLING)
 import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from './Navbar'; 
@@ -116,17 +117,21 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
 
     const filtersToQueryString = (filters) => {
         const params = new URLSearchParams();
+
         Object.entries(filters).forEach(([key, value]) => {
-            if (value !== null && value !== undefined && value !== "") {
-                if (Array.isArray(value)) {
-                    value.forEach(id => params.append(key, String(id)));
-                } else if (value instanceof Date) {
-                    params.append(key, value.toISOString());
-                } else {
-                    params.append(key, String(value));
-                }
+            if (value === null || value === undefined || value === "") return;
+
+            if (Array.isArray(value)) {
+                value.forEach(id => params.append(key, String(id)));
+            } 
+            else if (value instanceof Date) {
+                params.append(key, value.toISOString());
+            } 
+            else {
+                params.append(key, String(value));
             }
         });
+
         return params.toString();
     };
 
@@ -134,15 +139,17 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
     const calculateDateRange = useCallback((timeline) => {
         const now = new Date();
         let startDate;
-        
+
         if (timeline === 'day') {
             startDate = sub(now, { hours: 24 });
-        } else if (timeline === 'week') {
-            startDate = startOfWeek(sub(now, { weeks: 1 }), { weekStartsOn: 1 });
-        } else if (timeline === 'month') {
-            startDate = startOfMonth(sub(now, { months: 1 }));
+        } 
+        else if (timeline === 'week') {
+            startDate = sub(now, { weeks: 1 });
+        } 
+        else if (timeline === 'month') {
+            startDate = sub(now, { months: 1 });
         }
-        
+
         return {
             date_from: startDate ? startDate.toISOString() : '',
             date_to: now.toISOString(),
@@ -151,20 +158,25 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
 
     const handleTimelineChange = useCallback((timeline) => {
         setActiveTimeline(timeline);
-        if (timeline) {
-            const dateRange = calculateDateRange(timeline);
-            setFilters(prev => ({ ...prev, ...dateRange }));
-        } else {
+
+        if (timeline === "" || timeline === null) {
+            // Remove date filters completely → Backend will use previous-month logic
             setFilters(prev => {
                 const { date_from, date_to, ...rest } = prev;
                 return rest;
             });
+            return;
         }
+
+        // For day, week, month — send dates normally
+        const dateRange = calculateDateRange(timeline);
+        setFilters(prev => ({ ...prev, ...dateRange }));
+
     }, [calculateDateRange]);
     
     // Initial load: Set default filter to 'day'
     useEffect(() => {
-        handleTimelineChange('day');
+    handleTimelineChange('month'); // DEFAULT → Monthly
     }, [handleTimelineChange]);
 
     // --- Data Fetching ---

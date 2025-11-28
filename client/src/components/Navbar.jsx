@@ -2,6 +2,7 @@
 // src/components/Navbar.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import MultiSelectDropdown from './MultiSelectDropdown'; // Import MultiSelectDropdown
+import belLogo from "../assets/bel_logo.png";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'; 
 const MASTER_DATA_URL = `${API_BASE_URL}/master/filters`;
@@ -92,7 +93,11 @@ const Navbar = ({ onFilterChange, onLogout, currentFilters = {} }) => {
             <div className="flex justify-between items-center">
                 
                 {/* Logo */}
-                <h1 className="text-3xl font-bold text-gray-800">LOGO</h1>
+                <img 
+                    src={belLogo}
+                    alt="BEL Logo"
+                    className="h-12 w-auto object-contain"
+                />
                 
                 {/* Filters and Logout */}
                 <div className="flex space-x-4 items-center">

@@ -1,5 +1,6 @@
 // src/components/LoginPage.jsx
 import React, { useState } from "react";
+import belLogo from "../assets/bel_logo.png";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
@@ -51,9 +52,11 @@ const LoginPage = () => {
       <div className="w-full max-w-4xl p-8 bg-white border border-gray-200 rounded-lg shadow-xl md:flex md:space-x-12">
         {/* Left Side: Logo */}
         <div className="flex-1 flex items-center justify-center p-8 border-b md:border-b-0 md:border-r border-gray-100">
-          <h1 className="text-8xl font-black text-gray-800 tracking-wider">
-            LOGO
-          </h1>
+          <img 
+            src={belLogo} 
+            alt="BEL Logo" 
+            className="h-28 w-auto object-contain"
+          />
         </div>
 
         {/* Right Side: Login Form */}
