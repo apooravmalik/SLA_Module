@@ -1,12 +1,61 @@
+// client/src/components/ReportPage.jsx (PAGINATION IMPLEMENTATION)
 /* eslint-disable no-unused-vars */
-// src/components/ReportPage.jsx (FIXED ERROR HANDLING)
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Navbar from './Navbar'; 
 import { FaDownload, FaArrowLeft } from 'react-icons/fa';
-import { format, sub, startOfDay, startOfWeek, startOfMonth } from 'date-fns';
+import { sub } from 'date-fns';
 
-// --- Utility: Table Component ---
-const TableComponent = ({ data, columns }) => {
+// ------------------------------------------------------------------
+// Base Configuration
+// ------------------------------------------------------------------
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'; 
+const REPORT_URL = `${API_BASE_URL}/report/`;
+const DOWNLOAD_URL = `${API_BASE_URL}/report/download`;
+const PAGE_LIMIT = 500; // Define the fixed page size
+
+const reportColumns = [
+    { header: 'NVR Alias', key: 'nvrAlias_TXT', width: '150px' },
+    { header: 'Camera Name', key: 'camName_TXT', width: '150px' },
+    { header: 'Zone', key: 'ZoneName' },
+    { header: 'Street', key: 'StreetName' },
+    { header: 'Unit', key: 'UnitName' },
+    { header: 'Offline Time', key: 'OfflineTime', width: '180px' },
+    { header: 'Online Time', key: 'OnlineTime', width: '180px' },
+    { header: 'Offline Minutes', key: 'OfflineMinutes' },
+    { header: 'Penalty', key: 'PenaltyAmount', width: '100px' },
+];
+
+const timelineOptions = [
+    { value: 'day', label: 'Last 24 Hours' },
+    { value: 'week', label: 'Last 7 Days' },
+    { value: 'month', label: 'Last 30 Days' },
+];
+
+// Helper function to format error messages
+const formatErrorMessage = (errorData) => {
+    if (typeof errorData === 'string') {
+        return errorData;
+    }
+    
+    if (errorData.detail) {
+        if (Array.isArray(errorData.detail)) {
+            return errorData.detail
+                .map(err => `${err.loc?.join('.')}: ${err.msg}`)
+                .join('; ');
+        }
+        if (typeof errorData.detail === 'string') {
+            return errorData.detail;
+        }
+    }
+    
+    return 'An unknown error occurred';
+};
+
+
+// ------------------------------------------------------------------
+// Table Component (In-line rendering with forwardRef for scroll access)
+// ------------------------------------------------------------------
+const TableContent = React.forwardRef(({ data, columns }, ref) => {
     if (!data || data.length === 0) {
         return <p className="text-gray-500 p-4">No report data found for the current filters.</p>;
     }
@@ -19,7 +68,8 @@ const TableComponent = ({ data, columns }) => {
     
     return (
         <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
-            <div className="max-h-96 overflow-y-auto">
+            {/* Scrollable container for infinite loading */}
+            <div ref={ref} className="max-h-[70vh] overflow-y-auto"> 
                 <table className="w-full text-sm text-left text-gray-500">
                     <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 z-10">
                         <tr>
@@ -60,66 +110,35 @@ const TableComponent = ({ data, columns }) => {
             </div>
         </div>
     );
-};
+});
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'; 
-const REPORT_URL = `${API_BASE_URL}/report/`;
-const DOWNLOAD_URL = `${API_BASE_URL}/report/download`;
-
-const reportColumns = [
-    { header: 'NVR Alias', key: 'nvrAlias_TXT', width: '150px' },
-    { header: 'Camera Name', key: 'camName_TXT', width: '150px' },
-    { header: 'Zone', key: 'ZoneName' },
-    { header: 'Street', key: 'StreetName' },
-    { header: 'Unit', key: 'UnitName' },
-    { header: 'Offline Time', key: 'OfflineTime', width: '180px' },
-    { header: 'Online Time', key: 'OnlineTime', width: '180px' },
-    { header: 'Offline Minutes', key: 'OfflineMinutes' },
-    { header: 'Penalty', key: 'PenaltyAmount', width: '100px' },
-];
-
-const timelineOptions = [
-    { value: 'day', label: 'Last 24 Hours' },
-    { value: 'week', label: 'Last 7 Days' },
-    { value: 'month', label: 'Last 30 Days' },
-];
-
-// Helper function to format error messages
-const formatErrorMessage = (errorData) => {
-    if (typeof errorData === 'string') {
-        return errorData;
-    }
-    
-    if (errorData.detail) {
-        // Check if detail is an array of validation errors (422 response)
-        if (Array.isArray(errorData.detail)) {
-            return errorData.detail
-                .map(err => `${err.loc?.join('.')}: ${err.msg}`)
-                .join('; ');
-        }
-        // If detail is a string
-        if (typeof errorData.detail === 'string') {
-            return errorData.detail;
-        }
-    }
-    
-    return 'An unknown error occurred';
-};
 
 const ReportPage = ({ onGoToDashboard, onLogout }) => {
     const [filters, setFilters] = useState({});
     const [reportData, setReportData] = useState([]);
     const [totalRows, setTotalRows] = useState(0);
-    const [loading, setLoading] = useState(false);
+    
+    // Pagination State
+    const [skip, setSkip] = useState(0); 
+    const [hasMore, setHasMore] = useState(true);
+    
+    // Loading States
+    const [loadingInitial, setLoadingInitial] = useState(false); // For first load
+    const [loadingMore, setLoadingMore] = useState(false);     // For subsequent pages
     const [globalError, setGlobalError] = useState(null);
-    const [activeTimeline, setActiveTimeline] = useState('day');
+    const [activeTimeline, setActiveTimeline] = useState('month'); // Default is now 'month'
     const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
+    
+    // Ref to the scrollable table container
+    const scrollContainerRef = useRef(null);
 
-    const filtersToQueryString = (filters) => {
+    // Helper to convert filters (including date/pagination) to query string
+    const filtersToQueryString = (currentFilters, currentSkip) => {
         const params = new URLSearchParams();
 
-        Object.entries(filters).forEach(([key, value]) => {
-            if (value === null || value === undefined || value === "") return;
+        Object.entries(currentFilters).forEach(([key, value]) => {
+            // Exclude skip/limit fields from filters object 
+            if (value === null || value === undefined || value === "" || key === 'skip' || key === 'limit') return;
 
             if (Array.isArray(value)) {
                 value.forEach(id => params.append(key, String(id)));
@@ -132,10 +151,14 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
             }
         });
 
+        // Add pagination params explicitly
+        params.append('skip', currentSkip);
+        params.append('limit', PAGE_LIMIT);
+
         return params.toString();
     };
 
-    // --- Date Filtering Logic ---
+    // --- Date Filtering Logic (Remains the same) ---
     const calculateDateRange = useCallback((timeline) => {
         const now = new Date();
         let startDate;
@@ -150,50 +173,68 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
             startDate = sub(now, { months: 1 });
         }
 
+        // Return dates as ISO strings (which the backend will convert to datetime objects)
         return {
-            date_from: startDate ? startDate.toISOString() : '',
-            date_to: now.toISOString(),
+            date_from: startDate ? startDate.toISOString().split('T')[0] : '', // Keep only date part
+            date_to: now.toISOString().split('T')[0],
         };
     }, []);
 
     const handleTimelineChange = useCallback((timeline) => {
         setActiveTimeline(timeline);
 
-        if (timeline === "" || timeline === null) {
-            // Remove date filters completely → Backend will use previous-month logic
-            setFilters(prev => {
-                const { date_from, date_to, ...rest } = prev;
-                return rest;
-            });
-            return;
+        let newDateFilters = {};
+        if (timeline !== "" && timeline !== null) {
+            newDateFilters = calculateDateRange(timeline);
         }
 
-        // For day, week, month — send dates normally
-        const dateRange = calculateDateRange(timeline);
-        setFilters(prev => ({ ...prev, ...dateRange }));
+        // Reset data and pagination state whenever filters change (new query)
+        setReportData([]);
+        setSkip(0);
+        setHasMore(true);
+
+        setFilters(prev => ({ 
+            ...prev, 
+            ...newDateFilters, 
+            date_from: newDateFilters.date_from || '',
+            date_to: newDateFilters.date_to || ''
+        }));
 
     }, [calculateDateRange]);
     
-    // Initial load: Set default filter to 'day'
+    // Initial load: Set default filter to 'month'
     useEffect(() => {
-    handleTimelineChange('month'); // DEFAULT → Monthly
-    }, [handleTimelineChange]);
+        if (Object.keys(filters).length === 0) { 
+            handleTimelineChange('month'); 
+        }
+    }, [filters, handleTimelineChange]);
 
-    // --- Data Fetching ---
-    const fetchReportData = useCallback(async (currentFilters) => {
-        setLoading(true);
+
+    // --- Data Fetching (PAGINATED) ---
+    // isNewFilter = true for initial load or filter change, false for infinite scroll
+    const fetchReportData = useCallback(async (currentFilters, currentSkip, isNewFilter = true) => {
+        
+        if (!hasMore && !isNewFilter) return; 
+        
+        if (isNewFilter) {
+            setLoadingInitial(true);
+            setReportData([]);
+            setSkip(0);
+        } else {
+            setLoadingMore(true);
+        }
         setGlobalError(null);
         
         const token = localStorage.getItem('token');
         if (!token) {
             setGlobalError("Authentication required. Please log in.");
-            setLoading(false);
+            setLoadingInitial(false);
+            setLoadingMore(false);
             return;
         }
 
-        const queryString = filtersToQueryString(currentFilters);
+        const queryString = filtersToQueryString(currentFilters, currentSkip);
         
-        console.log("REPORT API Request (Filters):", currentFilters);
         console.log("REPORT API Request (Query String):", queryString);
         
         try {
@@ -207,49 +248,90 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
 
             if (response.ok) {
                 const data = await response.json();
-                setReportData(data.data || []);
+                
+                // Update or append data
+                if (isNewFilter) {
+                    setReportData(data.data || []);
+                } else {
+                    setReportData(prevData => [...prevData, ...(data.data || [])]);
+                }
+                
                 setTotalRows(data.total_rows || 0);
+
+                // Check for 'hasMore': if we fetched less than the limit, we're at the end.
+                const fetchedCount = data.data ? data.data.length : 0;
+                setHasMore(fetchedCount === PAGE_LIMIT);
+                
+                // Update skip for the *next* request
+                if (fetchedCount > 0) {
+                    setSkip(currentSkip + fetchedCount);
+                }
+
             } else {
-                // FIXED: Properly handle error responses
                 const errorData = await response.json().catch(() => ({}));
                 const errorMessage = formatErrorMessage(errorData);
-                
-                if (response.status === 403) {
-                    setGlobalError("Access Denied: You do not have the required permissions.");
-                } else if (response.status === 422) {
-                    setGlobalError(`Validation Error: ${errorMessage}`);
-                } else {
-                    setGlobalError(errorMessage || `Failed to load report data (Status: ${response.status})`);
-                }
+                setGlobalError(errorMessage || `Failed to load report data (Status: ${response.status})`);
             }
         } catch (error) {
             setGlobalError('Network error while fetching report data.');
             console.error('Report fetch error:', error);
         } finally {
-            setLoading(false);
+            setLoadingInitial(false);
+            setLoadingMore(false);
         }
-    }, []);
+    }, [hasMore, PAGE_LIMIT]); 
 
+    // Effect hook to trigger the initial fetch or a fetch on filter/date change
     useEffect(() => {
+        // Trigger initial fetch (skip=0) if filters exist
         if (Object.keys(filters).length > 0) {
-            fetchReportData(filters);
+            fetchReportData(filters, 0, true);
         }
-    }, [filters, fetchReportData]);
+    }, [filters]); 
 
-    // --- Download Logic ---
+    // --- Infinite Scroll Handler ---
+    const handleScroll = useCallback(() => {
+        const element = scrollContainerRef.current;
+        
+        if (element && hasMore && !loadingInitial && !loadingMore) {
+            // Check if user has scrolled near the bottom (e.g., within 100px of the end)
+            const isNearBottom = element.scrollHeight - element.scrollTop <= element.clientHeight + 100;
+
+            if (isNearBottom) {
+                console.log(`Scrolling to fetch next page (skip: ${skip})`);
+                fetchReportData(filters, skip, false);
+            }
+        }
+    }, [filters, skip, hasMore, loadingInitial, loadingMore, fetchReportData]);
+
+
+    // Attach scroll listener
+    useEffect(() => {
+        const element = scrollContainerRef.current;
+        if (element) {
+            element.addEventListener('scroll', handleScroll);
+            return () => element.removeEventListener('scroll', handleScroll);
+        }
+    }, [handleScroll]);
+
+    // --- Download Logic (Excludes pagination parameters) ---
     const handleDownload = async (format) => {
         setDownloadDropdownOpen(false);
-        setLoading(true);
-        setGlobalError(null);
-        
         const token = localStorage.getItem('token');
-        if (!token) {
-            setGlobalError("Authentication required. Please log in.");
-            setLoading(false);
-            return;
-        }
+        if (!token) return setGlobalError("Authentication required. Please log in.");
         
-        const queryString = filtersToQueryString(filters);
+        // Use an empty skip/limit value to ensure the backend fetches ALL data for download
+        const queryFilters = { 
+            zone_id: filters.zone_id, 
+            street_id: filters.street_id, 
+            unit_id: filters.unit_id, 
+            date_from: filters.date_from, 
+            date_to: filters.date_to,
+        };
+        // The download route calls the original GET route, which will pass 0/500 if not explicitly passed here.
+        // It's safer to rely on the backend's default behavior for the download route (which should be full fetch). 
+        // We ensure we only pass the filter values, not the current pagination state.
+        const queryString = filtersToQueryString(queryFilters, 0); // Pass skip=0 and limit=500 for the final conversion, though the endpoint may ignore them.
         const downloadUrl = `${DOWNLOAD_URL}?${queryString}`;
 
         try {
@@ -284,9 +366,10 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
             setGlobalError('Network error during file download.');
             console.error('Download error:', error);
         } finally {
-            setLoading(false);
+            setLoadingInitial(false); 
         }
     };
+    
 
     return (
         <div className="min-h-screen bg-gray-50 p-6 font-poppins">
@@ -306,12 +389,12 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
                         <span>Back to Dashboard</span>
                     </button>
                     
-                    <h2 className="text-xl font-bold text-gray-700">Report Page</h2>
+                    <h2 className="text-xl font-bold text-gray-700">Report Page (Pagination: {PAGE_LIMIT} records)</h2>
                 </div>
                 
                 {/* Total Rows Indicator */}
                 <span className="text-md text-gray-600">
-                    Total Rows: {loading ? '...' : totalRows.toLocaleString()}
+                    Total Rows (Filtered): {loadingInitial ? '...' : totalRows.toLocaleString()}
                 </span>
             </div>
 
@@ -335,7 +418,7 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
                     <button 
                         onClick={() => setDownloadDropdownOpen(!downloadDropdownOpen)}
                         className="py-2 px-4 bg-[#00BFFF] text-white rounded-lg hover:bg-sky-600 flex items-center space-x-2 transition duration-150"
-                        disabled={loading || reportData.length === 0}
+                        disabled={loadingInitial || reportData.length === 0}
                     >
                         <span>Download</span>
                         <FaDownload />
@@ -345,7 +428,7 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
                             <button 
                                 onClick={() => handleDownload('CSV')} 
                                 className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition duration-150 rounded-t-lg"
-                                disabled={loading || reportData.length === 0}
+                                disabled={loadingInitial || reportData.length === 0}
                             >
                                 Download CSV
                             </button>
@@ -354,7 +437,7 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
                 </div>
             </div>
 
-            {/* Error Display - FIXED to handle objects properly */}
+            {/* Error Display */}
             {globalError && (
                 <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative my-4" role="alert">
                     <strong className="font-bold">Error: </strong>
@@ -364,7 +447,8 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
 
             {/* Table Component */}
             <div className="mt-6">
-                {loading ? (
+                
+                {loadingInitial ? (
                     <div className="text-center py-12 text-[#00BFFF]">
                         <svg className="animate-spin h-8 w-8 text-[#00BFFF] inline-block mr-3" viewBox="0 0 24 24">
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
@@ -373,7 +457,24 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
                         Loading detailed report...
                     </div>
                 ) : (
-                    <TableComponent data={reportData} columns={reportColumns} />
+                    <>
+                        <TableContent data={reportData} columns={reportColumns} ref={scrollContainerRef} />
+                        
+                        {/* Infinite Scroll Loading Indicator */}
+                        {loadingMore && (
+                            <div className="text-center py-4 text-[#00BFFF]">
+                                <svg className="animate-spin h-6 w-6 text-[#00BFFF] inline-block mr-2" viewBox="0 0 24 24"></svg>
+                                Loading more data...
+                            </div>
+                        )}
+                        
+                        {/* End of results message */}
+                        {!hasMore && reportData.length > 0 && !loadingMore && (
+                            <div className="text-center py-4 text-gray-500 text-sm">
+                                End of report data. ({reportData.length} of {totalRows.toLocaleString()} displayed)
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
         </div>

@@ -48,6 +48,8 @@ class DashboardFilters(BaseModel):
     unit_id: Optional[List[int]] = None
     date_from: Optional[datetime] = None
     date_to: Optional[datetime] = None
+    skip: Optional[int] = 0
+    limit: Optional[int] = 500
 
 # --- Response Schemas for Dashboard KPIs ---
 class DashboardKPIs(BaseModel):

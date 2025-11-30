@@ -51,7 +51,7 @@ def build_in_clause_params(filter_list: Optional[List[int]], column_name: str, p
 def get_detailed_report(db: Session, filters: DashboardFilters) -> ReportResponse:
 
     # -----------------------------------------------------------
-    # FIXED DATE LOGIC — SAME AS WORKING MSSQL QUERY
+    # FIXED DATE LOGIC — USES FILTERS OR PREVIOUS MONTH DEFAULT
     # -----------------------------------------------------------
     has_valid_from = filters.date_from not in (None, "", " ")
     has_valid_to   = filters.date_to   not in (None, "", " ")
@@ -61,7 +61,7 @@ def get_detailed_report(db: Session, filters: DashboardFilters) -> ReportRespons
         end_date = filters.date_to
 
     else:
-        # Previous-month logic (MUST match dashboard)
+        # Previous-month logic (MUST match dashboard default)
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
         first_day_this_month = today.replace(day=1)
@@ -74,6 +74,8 @@ def get_detailed_report(db: Session, filters: DashboardFilters) -> ReportRespons
     print("\n🟩 REPORT DATE RANGE ---------------------------")
     print("START DATE =", start_date)
     print("END DATE   =", end_date)
+    print("SKIP =", filters.skip)
+    print("LIMIT =", filters.limit)
     print("------------------------------------------------\n")
 
     # -----------------------------------------------------------
@@ -93,21 +95,14 @@ def get_detailed_report(db: Session, filters: DashboardFilters) -> ReportRespons
     }
 
     # -----------------------------------------------------------
-    # FINAL SQL (IDENTICAL to working dashboard SQL)
+    # BASE SQL WITH CTEs (UP TO PenaltyBase) - NOW USES BOUND DATES
     # -----------------------------------------------------------
-    sql = text(f"""
+    base_sql_cte = f"""
         WITH MonthData AS (
             SELECT *
-            FROM IncidentLog_TBL
-            WHERE 
-                inlDateTime_DTM >= DATEFROMPARTS(
-                                        YEAR(DATEADD(MONTH,-1,GETDATE())),
-                                        MONTH(DATEADD(MONTH,-1,GETDATE())),
-                                        1)
-                AND inlDateTime_DTM < DATEFROMPARTS(
-                                        YEAR(GETDATE()),
-                                        MONTH(GETDATE()),
-                                        1)
+            FROM {DB_SCHEMA}.IncidentLog_TBL
+            WHERE inlDateTime_DTM >= :start_date
+              AND inlDateTime_DTM < :end_date
         ),
 
         LatestOffline AS (
@@ -160,11 +155,13 @@ def get_detailed_report(db: Session, filters: DashboardFilters) -> ReportRespons
 
                 DATEDIFF(MINUTE, lo.OfflineTime, lon.OnlineTime) AS OfflineMinutes,
 
-                CASE
-                    WHEN DATEDIFF(MINUTE, lo.OfflineTime, lon.OnlineTime) >= 1440
-                        THEN (DATEDIFF(MINUTE, lo.OfflineTime, lon.OnlineTime) / 1440) * 5
-                    ELSE 0
-                END AS PenaltyAmount
+                CAST(
+                    CASE
+                        WHEN DATEDIFF(MINUTE, lo.OfflineTime, lon.OnlineTime) >= 1440
+                            THEN (DATEDIFF(MINUTE, lo.OfflineTime, lon.OnlineTime) / 1440) * 5.0 
+                        ELSE 0
+                    END AS DECIMAL(10, 2)
+                ) AS PenaltyAmount
 
             FROM {DB_SCHEMA}.NVR_TBL n
             JOIN {DB_SCHEMA}.NVRChannel_TBL nc ON nc.nchNVR_FRK = n.NVR_PRK
@@ -179,28 +176,50 @@ def get_detailed_report(db: Session, filters: DashboardFilters) -> ReportRespons
             LEFT JOIN LatestOffline lo ON lo.Device_PRK = cam.Camera_PRK
             LEFT JOIN LatestOnline lon ON lon.Device_PRK = cam.Camera_PRK
         )
+    """
 
+    # 1. TOTAL COUNT QUERY
+    count_sql = text(f"""
+        {base_sql_cte}
+        SELECT COUNT(*) AS total
+        FROM PenaltyBase
+        WHERE {zone_where}
+          AND {street_where}
+          AND {unit_where};
+    """)
+
+    # 2. DATA FETCH QUERY (PAGINATED)
+    data_sql = text(f"""
+        {base_sql_cte}
         SELECT *
         FROM PenaltyBase
         WHERE {zone_where}
           AND {street_where}
           AND {unit_where}
-        ORDER BY NVR_PRK, Camera_PRK;
+        ORDER BY NVR_PRK, Camera_PRK 
+        OFFSET :skip ROWS
+        FETCH NEXT :limit ROWS ONLY;
     """)
 
-    # -----------------------------------------------------------
-    # DEBUG PRINT
-    # -----------------------------------------------------------
-    print("\n--- EXECUTABLE REPORT QUERY (FINAL) ---")
-    print(substitute_params(sql.text, params))
+    # Add pagination parameters to params for execution
+    params["skip"] = filters.skip
+    params["limit"] = filters.limit
+
+    print("\n--- EXECUTABLE REPORT DATA QUERY (PAGINATED) ---")
+    print(substitute_params(data_sql.text, params))
     print("------------------------------------------------------------\n")
 
     try:
-        rows = db.execute(sql, params).mappings().all()
+        # Execute COUNT query
+        total_rows_result = db.execute(count_sql, params).scalar_one()
+        total_rows = int(total_rows_result) if total_rows_result is not None else 0
+
+        # Execute DATA query
+        rows = db.execute(data_sql, params).mappings().all()
         data = [ReportRow(**dict(r)) for r in rows]
 
-        return ReportResponse(total_rows=len(data), data=data)
+        return ReportResponse(total_rows=total_rows, data=data)
 
     except Exception as e:
-        print(f"❌ ERROR EXECUTING REPORT QUERY: {e}")
+        print(f"❌ ERROR EXECUTING PAGINATED REPORT QUERY: {e}")
         return ReportResponse(total_rows=0, data=[])

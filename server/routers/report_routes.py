@@ -25,16 +25,18 @@ def get_report_data(
     unit_id: Optional[List[int]] = Query(None),
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
+    skip: int = Query(0, ge=0, description="The number of records to skip for pagination."),
+    limit: int = Query(500, ge=1, le=1000, description="The maximum number of records to return (page size)."),
 ):
     """Retrieves detailed device downtime and penalty data for the report table."""
     
     filters = DashboardFilters(
         zone_id=zone_id, street_id=street_id, unit_id=unit_id,
         date_from=date_from, date_to=date_to,
+        skip=skip, limit=limit, 
     )
     
     return report_data_service.get_detailed_report(db, filters)
-
 
 def convert_report_to_csv(report_data: List[ReportRow]) -> io.StringIO:
     """Converts a list of ReportRow Pydantic models to a CSV format string."""
