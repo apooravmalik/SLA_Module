@@ -1,4 +1,4 @@
-# services/master_data_service.py
+# services/master_data_service.py (CORRECTED with proper Link table joins)
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from schemas import FilterOption, MasterFiltersResponse
@@ -21,24 +21,74 @@ def get_cascading_filters(
     street_ids: Optional[List[int]] = None
 ) -> MasterFiltersResponse:
     """
-    Fetches independent, unfiltered lists of Zones, Streets, and Units.
-    The cascading functionality is removed.
+    Fetches filtered lists of Streets and Units based on selected parent IDs.
+    Uses the correct LinkCameraZone → LinkStreetZone → LinkBuildingStreet → LinkUnitBuilding path.
     """
     
-    # 1. Fetch ALL Zones (Unfiltered)
+    # 1. Fetch ALL Zones (Always the top-level list - unfiltered)
     zone_list = fetch_master_list(db, "CameraZone_TBL", "CameraZone_PRK", "cznName_TXT")
     
     
-    # 2. Fetch ALL Streets (Unfiltered)
-    street_list = fetch_master_list(db, "Street_TBL", "Street_PRK", "strName_TXT")
-
-
-    # 3. Fetch ALL Units (Unfiltered)
-    unit_list = fetch_master_list(db, "Unit_TBL", "Unit_PRK", "untUnitName_TXT")
+    # ===================================================================
+    # 2. Filter Streets by Selected Zone(s)
+    # ===================================================================
+    if zone_ids and len(zone_ids) > 0:
+        # Build dynamic IN clause for zones
+        zone_param_names = [f"zone_id_{i}" for i in range(len(zone_ids))]
+        zone_filter_params = {name: value for name, value in zip(zone_param_names, zone_ids)}
+        zone_where = f"lczZone_FRK IN ({', '.join(':' + name for name in zone_param_names)})"
+        
+        # Query using the correct Link table path: LinkCameraZone → LinkStreetZone
+        street_query = text(f"""
+            SELECT DISTINCT
+                s.Street_PRK AS id,
+                s.strName_TXT AS name
+            FROM {DB_SCHEMA}.Street_TBL s
+            JOIN {DB_SCHEMA}.LinkStreetZone_TBL lsz ON lsz.lszStreet_FRK = s.Street_PRK
+            JOIN {DB_SCHEMA}.LinkCameraZone_TBL lcz ON lcz.lczZone_FRK = lsz.lszZone_FRK
+            WHERE {zone_where}
+            ORDER BY s.strName_TXT;
+        """)
+        
+        street_results = db.execute(street_query, zone_filter_params).mappings().all()
+        street_list = [dict(row) for row in street_results]
+        
+    else:
+        # No zone filter → return all streets
+        street_list = fetch_master_list(db, "Street_TBL", "Street_PRK", "strName_TXT")
 
 
     # ===================================================================
-    # Return the three independent filter options
+    # 3. Filter Units by Selected Street(s)
+    # ===================================================================
+    if street_ids and len(street_ids) > 0:
+        # Build dynamic IN clause for streets
+        street_param_names = [f"street_id_{i}" for i in range(len(street_ids))]
+        street_filter_params = {name: value for name, value in zip(street_param_names, street_ids)}
+        street_where = f"lbsStreet_FRK IN ({', '.join(':' + name for name in street_param_names)})"
+        
+        # Query using the correct Link table path: LinkBuildingStreet → LinkUnitBuilding
+        unit_query = text(f"""
+            SELECT DISTINCT
+                u.Unit_PRK AS id,
+                u.untUnitName_TXT AS name
+            FROM {DB_SCHEMA}.Unit_TBL u
+            JOIN {DB_SCHEMA}.LinkUnitBuilding_TBL lub ON lub.lubUnit_FRK = u.Unit_PRK
+            JOIN {DB_SCHEMA}.LinkBuildingStreet_TBL lbs ON lbs.lbsBuilding_FRK = lub.lubBuilding_FRK
+            WHERE {street_where}
+            ORDER BY u.untUnitName_TXT;
+        """)
+        
+        unit_results = db.execute(unit_query, street_filter_params).mappings().all()
+        unit_list = [dict(row) for row in unit_results]
+        
+    else:
+        # No street filter → return all units
+        unit_list = fetch_master_list(db, "Unit_TBL", "Unit_PRK", "untUnitName_TXT")
+
+
+    # ===================================================================
+    # Return the cascaded filter options
     # ===================================================================
     return MasterFiltersResponse(
         zones=[FilterOption(**item) for item in zone_list],

@@ -2,7 +2,7 @@
 /* eslint-disable no-unused-vars */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Navbar from './Navbar'; 
-import { FaDownload, FaArrowLeft, FaSpinner } from 'react-icons/fa';
+import { FaDownload, FaArrowLeft } from 'react-icons/fa';
 import { sub } from 'date-fns';
 
 // ------------------------------------------------------------------
@@ -11,7 +11,7 @@ import { sub } from 'date-fns';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'; 
 const REPORT_URL = `${API_BASE_URL}/report/`;
 const DOWNLOAD_URL = `${API_BASE_URL}/report/download`;
-const PAGE_LIMIT = 500; // Define the fixed page size (max 1000 on server)
+const PAGE_LIMIT = 500; // Define the fixed page size
 
 const reportColumns = [
     { header: 'NVR Alias', key: 'nvrAlias_TXT', width: '150px' },
@@ -126,7 +126,6 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
     // Loading States
     const [loadingInitial, setLoadingInitial] = useState(false); // For first load
     const [loadingMore, setLoadingMore] = useState(false);     // For subsequent pages
-    const [isDownloading, setIsDownloading] = useState(false);
     const [globalError, setGlobalError] = useState(null);
     const [activeTimeline, setActiveTimeline] = useState('month'); // Default is now 'month'
     const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
@@ -160,15 +159,67 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
         return params.toString();
     };
 
-    // --- Data Fetching (PAGINATED) - Defined first to be accessible by callbacks ---
+    // --- Date Filtering Logic (Remains the same) ---
+    const calculateDateRange = useCallback((timeline) => {
+        const now = new Date();
+        let startDate;
+
+        if (timeline === 'day') {
+            startDate = sub(now, { hours: 24 });
+        } 
+        else if (timeline === 'week') {
+            startDate = sub(now, { weeks: 1 });
+        } 
+        else if (timeline === 'month') {
+            startDate = sub(now, { months: 1 });
+        }
+
+        // Return dates as ISO strings (which the backend will convert to datetime objects)
+        return {
+            date_from: startDate ? startDate.toISOString().split('T')[0] : '', // Keep only date part
+            date_to: now.toISOString().split('T')[0],
+        };
+    }, []);
+
+    const handleTimelineChange = useCallback((timeline) => {
+        setActiveTimeline(timeline);
+
+        let newDateFilters = {};
+        if (timeline !== "" && timeline !== null) {
+            newDateFilters = calculateDateRange(timeline);
+        }
+
+        // Reset data and pagination state whenever filters change (new query)
+        setReportData([]);
+        setSkip(0);
+        setHasMore(true);
+
+        setFilters(prev => ({ 
+            ...prev, 
+            ...newDateFilters, 
+            date_from: newDateFilters.date_from || '',
+            date_to: newDateFilters.date_to || ''
+        }));
+
+    }, [calculateDateRange]);
+    
+    // Initial load: Set default filter to 'month'
+    useEffect(() => {
+        if (Object.keys(filters).length === 0) { 
+            handleTimelineChange('month'); 
+        }
+    }, [filters, handleTimelineChange]);
+
+
+    // --- Data Fetching (PAGINATED) ---
+    // isNewFilter = true for initial load or filter change, false for infinite scroll
     const fetchReportData = useCallback(async (currentFilters, currentSkip, isNewFilter = true) => {
         
         if (!hasMore && !isNewFilter) return; 
         
         if (isNewFilter) {
             setLoadingInitial(true);
-            // Ensure data is empty before fetching the first page
-            setReportData([]); 
+            setReportData([]);
             setSkip(0);
         } else {
             setLoadingMore(true);
@@ -230,76 +281,14 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
             setLoadingMore(false);
         }
     }, [hasMore, PAGE_LIMIT]); 
-    
-    // --- Date Filtering Logic (Remains the same) ---
-    const calculateDateRange = useCallback((timeline) => {
-        const now = new Date();
-        let startDate;
 
-        if (timeline === 'day') {
-            startDate = sub(now, { hours: 24 });
-        } 
-        else if (timeline === 'week') {
-            startDate = sub(now, { weeks: 1 });
-        } 
-        else if (timeline === 'month') {
-            startDate = sub(now, { months: 1 });
-        }
-
-        // Return dates as ISO strings (which the backend will convert to datetime objects)
-        return {
-            date_from: startDate ? startDate.toISOString().split('T')[0] : '', // Keep only date part
-            date_to: now.toISOString().split('T')[0],
-        };
-    }, []);
-    
-    // Function passed to Navbar's "Go" button or Timeline change
-    const handleApplyFilters = useCallback((newFilters) => {
-        // Reset pagination state when filters change
-        setReportData([]);
-        setSkip(0);
-        setHasMore(true);
-        // CRITICAL: Update appliedFilters state here so Navbar receives the current values
-        setAppliedFilters(newFilters); 
-        
-        // Immediately fetch data on filter application (skip=0)
-        fetchReportData(newFilters, 0, true);
-    }, [fetchReportData]); // DEPENDS ON fetchReportData
-
-    const handleTimelineChange = useCallback((timeline) => {
-        setActiveTimeline(timeline);
-
-        let newDateFilters = {};
-        if (timeline !== "" && timeline !== null) {
-            newDateFilters = calculateDateRange(timeline);
-        }
-
-        // Merge existing non-date filters (Zone/Street/Unit) with the new date range
-        const filtersToApply = {
-            zone_id: appliedFilters.zone_id || [],
-            street_id: appliedFilters.street_id || [],
-            unit_id: appliedFilters.unit_id || [],
-            ...newDateFilters,
-            date_from: newDateFilters.date_from || '',
-            date_to: newDateFilters.date_to || ''
-        };
-        
-        // Trigger the apply function which resets pagination and fetches data
-        handleApplyFilters(filtersToApply);
-
-    }, [calculateDateRange, appliedFilters, handleApplyFilters]);
-    
-    // Initial load: Set default filter to 'month' and fetch data
+    // Effect hook to trigger the initial fetch or a fetch on filter/date change
     useEffect(() => {
-        // This check prevents running multiple times if appliedFilters gets set externally
-        if (Object.keys(appliedFilters).length === 0) { 
-            // Set initial filters to be previous month range and then trigger fetch
-            const initialDateFilters = calculateDateRange('month');
-            // We call handleApplyFilters which sets appliedFilters and triggers the fetch
-            handleApplyFilters(initialDateFilters);
+        // Trigger initial fetch (skip=0) if filters exist
+        if (Object.keys(filters).length > 0) {
+            fetchReportData(filters, 0, true);
         }
-    }, [appliedFilters, calculateDateRange, handleApplyFilters]);
-
+    }, [filters]); 
 
     // --- Infinite Scroll Handler ---
     const handleScroll = useCallback(() => {
@@ -311,10 +300,10 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
 
             if (isNearBottom) {
                 console.log(`Scrolling to fetch next page (skip: ${skip})`);
-                fetchReportData(appliedFilters, skip, false); // Use appliedFilters
+                fetchReportData(filters, skip, false);
             }
         }
-    }, [appliedFilters, skip, hasMore, loadingInitial, loadingMore, fetchReportData]);
+    }, [filters, skip, hasMore, loadingInitial, loadingMore, fetchReportData]);
 
 
     // Attach scroll listener
@@ -326,40 +315,24 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
         }
     }, [handleScroll]);
 
-    // --- Download Logic (Now manages its own loading state) ---
+    // --- Download Logic (Excludes pagination parameters) ---
     const handleDownload = async (format) => {
         setDownloadDropdownOpen(false);
-        setGlobalError(null); 
-        setIsDownloading(true); 
-
         const token = localStorage.getItem('token');
-        if (!token) {
-            setIsDownloading(false);
-            return setGlobalError("Authentication required. Please log in.");
-        }
+        if (!token) return setGlobalError("Authentication required. Please log in.");
         
-        // Use appliedFilters state, which holds the current filter values
+        // Use an empty skip/limit value to ensure the backend fetches ALL data for download
         const queryFilters = { 
-            zone_id: appliedFilters.zone_id, 
-            street_id: appliedFilters.street_id, 
-            unit_id: appliedFilters.unit_id, 
-            date_from: appliedFilters.date_from, 
-            date_to: appliedFilters.date_to,
+            zone_id: filters.zone_id, 
+            street_id: filters.street_id, 
+            unit_id: filters.unit_id, 
+            date_from: filters.date_from, 
+            date_to: filters.date_to,
         };
-        
-        // Build query string only with filters (no pagination params)
-        const downloadParams = new URLSearchParams();
-        Object.entries(queryFilters).forEach(([key, value]) => {
-            if (value !== null && value !== undefined && value !== "") {
-                if (Array.isArray(value)) {
-                    value.forEach(id => downloadParams.append(key, String(id)));
-                } else {
-                    downloadParams.append(key, String(value));
-                }
-            }
-        });
-        
-        const queryString = downloadParams.toString();
+        // The download route calls the original GET route, which will pass 0/500 if not explicitly passed here.
+        // It's safer to rely on the backend's default behavior for the download route (which should be full fetch). 
+        // We ensure we only pass the filter values, not the current pagination state.
+        const queryString = filtersToQueryString(queryFilters, 0); // Pass skip=0 and limit=500 for the final conversion, though the endpoint may ignore them.
         const downloadUrl = `${DOWNLOAD_URL}?${queryString}`;
 
         try {
@@ -394,7 +367,7 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
             setGlobalError('Network error during file download.');
             console.error('Download error:', error);
         } finally {
-            setIsDownloading(false); 
+            setLoadingInitial(false); 
         }
     };
     
@@ -452,7 +425,7 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
                     <button 
                         onClick={() => setDownloadDropdownOpen(!downloadDropdownOpen)}
                         className="py-2 px-4 bg-[#00BFFF] text-white rounded-lg hover:bg-sky-600 flex items-center space-x-2 transition duration-150"
-                        disabled={loadingInitial || isDownloading || reportData.length === 0}
+                        disabled={loadingInitial || reportData.length === 0}
                     >
                         {isDownloading ? ( 
                             <>
@@ -471,7 +444,7 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
                             <button 
                                 onClick={() => handleDownload('CSV')} 
                                 className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition duration-150 rounded-t-lg"
-                                disabled={loadingInitial || isDownloading || reportData.length === 0}
+                                disabled={loadingInitial || reportData.length === 0}
                             >
                                 Download CSV
                             </button>
