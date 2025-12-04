@@ -45,7 +45,7 @@ const TableComponent = ({ data, columns }) => {
                                     // Special formatting for Penalty and Time
                                     let displayValue = cellValue;
                                     if (col.key === 'PenaltyAmount') {
-                                        displayValue = `£ ${parseFloat(cellValue).toFixed(2)}`;
+                                        displayValue = `₹ ${parseFloat(cellValue).toFixed(2)}`;
                                     } else if (col.key.endsWith('Time') && cellValue !== 'N/A') {
                                         // Simple date formatting (adjust as needed)
                                         displayValue = new Date(cellValue).toLocaleString();

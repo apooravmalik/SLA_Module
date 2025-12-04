@@ -35,7 +35,7 @@ const KPICard = ({ title, value, icon: Icon, isPenalty = false, isStatic = false
                 <h3 className="text-sm font-medium uppercase text-gray-500">{title}</h3>
             </div>
             <div className="mt-4 text-3xl font-extrabold">
-                {isPenalty && '£'} {displayValue}
+                {isPenalty && '₹'} {displayValue}
             </div>
             <p className="mt-1 text-xs text-gray-500">{isStatic ? 'Total System Count' : 'Filtered Data'}</p>
         </div>
@@ -130,19 +130,32 @@ const DashboardPage = ({ onLogout, onGoToReport }) => { // Props added
         }
     }, []);
 
-    // Effect hook to trigger data fetching when filters change
+    // NEW: Handler for the 'Go' button click from Navbar
+    const handleApplyFilters = useCallback((newFilters) => {
+        // 1. Update the applied filters state
+        setFilters(newFilters);
+        // 2. Trigger the fetch with the new filters
+        fetchDashboardData(newFilters);
+    }, [fetchDashboardData]);
+
+    // Effect hook to trigger data fetching only on mount for the default filters (backend's default date range).
+    // Subsequent fetches are triggered manually by handleApplyFilters/Go button.
     useEffect(() => {
+        // Initial load will use the default filter state (empty object), 
+        // relying on the backend to apply its default date range (previous month).
         fetchDashboardData(filters);
-    }, [filters, fetchDashboardData]);
+    }, []); // Only runs once on mount.
 
     return (
         <div className="min-h-screen bg-gray-50 p-6 font-poppins">
+		
+			<h1 className="text-3xl font-extrabold text-[#00BFFF] mb-4">
+                SLA MODULE - PKG 2 - DASHBOARD
+            </h1>
             
             {/* Navbar Component with Filters and Logout */}
-            {/* Note: currentFilters is passed to Navbar for date/timeline synchronization */}
-            <Navbar onFilterChange={setFilters} onLogout={onLogout} currentFilters={filters} />
-
-            <h2 className="text-xl font-bold text-gray-700 mt-6 mb-4">Dashboard Overview</h2>
+            {/* onApplyFilters is the new handler for the Navbar's 'Go' button */}
+            <Navbar onApplyFilters={handleApplyFilters} onLogout={onLogout} currentFilters={filters} />
 
             {/* Error Display */}
             {globalError && (
@@ -162,7 +175,7 @@ const DashboardPage = ({ onLogout, onGoToReport }) => { // Props added
 
             {/* KPI Grid (lg:grid-cols-3 layout) */}
             {!loading && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 pt-5 lg:grid-cols-3 gap-6">
                     
                     {/* First Row: Static KPIs */}
                     <KPICard title="Total Zones" value={kpiData.total_zones} icon={FaMapMarkerAlt} isStatic={true} onClick={onGoToReport} />

@@ -1,11 +1,61 @@
-// src/components/ReportPage.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+// client/src/components/ReportPage.jsx (PAGINATION IMPLEMENTATION)
+/* eslint-disable no-unused-vars */
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Navbar from './Navbar'; 
-import { FaDownload, FaArrowLeft } from 'react-icons/fa';
-import { format, sub, startOfDay, startOfWeek, startOfMonth } from 'date-fns';
+import { FaDownload, FaArrowLeft, FaSpinner } from 'react-icons/fa';
+import { sub } from 'date-fns';
 
-// --- Utility: Table Component ---
-const TableComponent = ({ data, columns }) => {
+// ------------------------------------------------------------------
+// Base Configuration
+// ------------------------------------------------------------------
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'; 
+const REPORT_URL = `${API_BASE_URL}/report/`;
+const DOWNLOAD_URL = `${API_BASE_URL}/report/download`;
+const PAGE_LIMIT = 500; // Define the fixed page size (max 1000 on server)
+
+const reportColumns = [
+    { header: 'NVR Alias', key: 'nvrAlias_TXT', width: '150px' },
+    { header: 'Camera Name', key: 'camName_TXT', width: '150px' },
+    { header: 'Zone', key: 'ZoneName' },
+    { header: 'Street', key: 'StreetName' },
+    { header: 'Unit', key: 'UnitName' },
+    { header: 'Offline Time', key: 'OfflineTime', width: '180px' },
+    { header: 'Online Time', key: 'OnlineTime', width: '180px' },
+    { header: 'Offline Minutes', key: 'OfflineMinutes' },
+    { header: 'Penalty', key: 'PenaltyAmount', width: '100px' },
+];
+
+const timelineOptions = [
+    { value: 'day', label: 'Last 24 Hours' },
+    { value: 'week', label: 'Last 7 Days' },
+    { value: 'month', label: 'Last 30 Days' },
+];
+
+// Helper function to format error messages
+const formatErrorMessage = (errorData) => {
+    if (typeof errorData === 'string') {
+        return errorData;
+    }
+    
+    if (errorData.detail) {
+        if (Array.isArray(errorData.detail)) {
+            return errorData.detail
+                .map(err => `${err.loc?.join('.')}: ${err.msg}`)
+                .join('; ');
+        }
+        if (typeof errorData.detail === 'string') {
+            return errorData.detail;
+        }
+    }
+    
+    return 'An unknown error occurred';
+};
+
+
+// ------------------------------------------------------------------
+// Table Component (In-line rendering with forwardRef for scroll access)
+// ------------------------------------------------------------------
+const TableContent = React.forwardRef(({ data, columns }, ref) => {
     if (!data || data.length === 0) {
         return <p className="text-gray-500 p-4">No report data found for the current filters.</p>;
     }
@@ -18,7 +68,8 @@ const TableComponent = ({ data, columns }) => {
     
     return (
         <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
-            <div className="max-h-96 overflow-y-auto">
+            {/* Scrollable container for infinite loading */}
+            <div ref={ref} className="max-h-[70vh] overflow-y-auto"> 
                 <table className="w-full text-sm text-left text-gray-500">
                     <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 z-10">
                         <tr>
@@ -37,7 +88,7 @@ const TableComponent = ({ data, columns }) => {
                                     let displayValue = cellValue.toString();
                                     
                                     if (col.key === 'PenaltyAmount' && cellValue !== 'N/A') {
-                                        displayValue = `£ ${parseFloat(cellValue).toFixed(2)}`;
+                                        displayValue = `₹ ${parseFloat(cellValue).toFixed(2)}`;
                                     } else if (col.key.endsWith('Time') && cellValue !== 'N/A') {
                                         try {
                                             displayValue = new Date(cellValue).toLocaleString();
@@ -59,99 +110,82 @@ const TableComponent = ({ data, columns }) => {
             </div>
         </div>
     );
-};
+});
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'; 
-const REPORT_URL = `${API_BASE_URL}/report/`;
-const DOWNLOAD_URL = `${API_BASE_URL}/report/download`;
-
-const reportColumns = [
-    { header: 'NVR Alias', key: 'nvrAlias_TXT', width: '150px' },
-    { header: 'Camera Name', key: 'camName_TXT', width: '150px' },
-    { header: 'Zone', key: 'ZoneName' },
-    { header: 'Street', key: 'StreetName' },
-    { header: 'Unit', key: 'UnitName' },
-    { header: 'Offline Time', key: 'OfflineTime', width: '180px' },
-    { header: 'Online Time', key: 'OnlineTime', width: '180px' },
-    { header: 'Offline Minutes', key: 'OfflineMinutes' },
-    { header: 'Penalty', key: 'PenaltyAmount', width: '100px' },
-];
-
-const timelineOptions = [
-    { value: 'day', label: 'Last 24 Hours' },
-    { value: 'week', label: 'Last 7 Days' },
-    { value: 'month', label: 'Last 30 Days' },
-];
 
 const ReportPage = ({ onGoToDashboard, onLogout }) => {
-    const [filters, setFilters] = useState({});
+    // State to hold the filters currently applied to the report data
+    const [appliedFilters, setAppliedFilters] = useState({});
     const [reportData, setReportData] = useState([]);
     const [totalRows, setTotalRows] = useState(0);
-    const [loading, setLoading] = useState(false);
+    
+    // Pagination State
+    const [skip, setSkip] = useState(0); 
+    const [hasMore, setHasMore] = useState(true);
+    
+    // Loading States
+    const [loadingInitial, setLoadingInitial] = useState(false); // For first load
+    const [loadingMore, setLoadingMore] = useState(false);     // For subsequent pages
+    const [isDownloading, setIsDownloading] = useState(false);
     const [globalError, setGlobalError] = useState(null);
-    const [activeTimeline, setActiveTimeline] = useState('day');
+    const [activeTimeline, setActiveTimeline] = useState('month'); // Default is now 'month'
     const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
+    
+    // Ref to the scrollable table container
+    const scrollContainerRef = useRef(null);
 
-    const filtersToQueryString = (filters) => {
+    // Helper to convert filters (including date/pagination) to query string
+    const filtersToQueryString = (currentFilters, currentSkip) => {
         const params = new URLSearchParams();
-        Object.entries(filters).forEach(([key, value]) => {
-            if (value !== null && value !== undefined && value !== "") {
+
+        Object.entries(currentFilters).forEach(([key, value]) => {
+            // Exclude skip/limit fields from filters object 
+            if (value === null || value === undefined || value === "" || key === 'skip' || key === 'limit') return;
+
+            if (Array.isArray(value)) {
+                value.forEach(id => params.append(key, String(id)));
+            } 
+            else if (value instanceof Date) {
+                params.append(key, value.toISOString());
+            } 
+            else {
                 params.append(key, String(value));
             }
         });
+
+        // Add pagination params explicitly
+        params.append('skip', currentSkip);
+        params.append('limit', PAGE_LIMIT);
+
         return params.toString();
     };
 
-    // --- Date Filtering Logic ---
-    const calculateDateRange = useCallback((timeline) => {
-        const now = new Date();
-        let startDate;
+    // --- Data Fetching (PAGINATED) - Defined first to be accessible by callbacks ---
+    const fetchReportData = useCallback(async (currentFilters, currentSkip, isNewFilter = true) => {
         
-        if (timeline === 'day') {
-            startDate = sub(now, { hours: 24 });
-        } else if (timeline === 'week') {
-            startDate = startOfWeek(sub(now, { weeks: 1 }), { weekStartsOn: 1 });
-        } else if (timeline === 'month') {
-            startDate = startOfMonth(sub(now, { months: 1 }));
-        }
+        if (!hasMore && !isNewFilter) return; 
         
-        return {
-            date_from: startDate ? startDate.toISOString() : '',
-            date_to: now.toISOString(),
-        };
-    }, []);
-
-    const handleTimelineChange = useCallback((timeline) => {
-        setActiveTimeline(timeline);
-        if (timeline) {
-            const dateRange = calculateDateRange(timeline);
-            setFilters(prev => ({ ...prev, ...dateRange }));
+        if (isNewFilter) {
+            setLoadingInitial(true);
+            // Ensure data is empty before fetching the first page
+            setReportData([]); 
+            setSkip(0);
         } else {
-            setFilters(prev => {
-                const { date_from, date_to, ...rest } = prev;
-                return rest;
-            });
+            setLoadingMore(true);
         }
-    }, [calculateDateRange]);
-    
-    // Initial load: Set default filter to 'day'
-    useEffect(() => {
-        handleTimelineChange('day');
-    }, [handleTimelineChange]);
-
-    // --- Data Fetching ---
-    const fetchReportData = useCallback(async (currentFilters) => {
-        setLoading(true);
         setGlobalError(null);
         
         const token = localStorage.getItem('token');
         if (!token) {
             setGlobalError("Authentication required. Please log in.");
-            setLoading(false);
+            setLoadingInitial(false);
+            setLoadingMore(false);
             return;
         }
 
-        const queryString = filtersToQueryString(currentFilters);
+        const queryString = filtersToQueryString(currentFilters, currentSkip);
+        
+        console.log("REPORT API Request (Query String):", queryString);
         
         try {
             const response = await fetch(`${REPORT_URL}?${queryString}`, {
@@ -164,42 +198,168 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
 
             if (response.ok) {
                 const data = await response.json();
-                setReportData(data.data || []);
+                
+                // Update or append data
+                if (isNewFilter) {
+                    setReportData(data.data || []);
+                } else {
+                    setReportData(prevData => [...prevData, ...(data.data || [])]);
+                }
+                
                 setTotalRows(data.total_rows || 0);
-            } else if (response.status === 403) {
-                setGlobalError("Access Denied: You do not have the required permissions.");
+
+                // Check for 'hasMore': if we fetched less than the limit, we're at the end.
+                const fetchedCount = data.data ? data.data.length : 0;
+                setHasMore(fetchedCount === PAGE_LIMIT);
+                
+                // Update skip for the *next* request
+                if (fetchedCount > 0) {
+                    setSkip(currentSkip + fetchedCount);
+                }
+
             } else {
                 const errorData = await response.json().catch(() => ({}));
-                setGlobalError(errorData.detail || 'Failed to load report data.');
+                const errorMessage = formatErrorMessage(errorData);
+                setGlobalError(errorMessage || `Failed to load report data (Status: ${response.status})`);
             }
         } catch (error) {
             setGlobalError('Network error while fetching report data.');
             console.error('Report fetch error:', error);
         } finally {
-            setLoading(false);
+            setLoadingInitial(false);
+            setLoadingMore(false);
         }
+    }, [hasMore, PAGE_LIMIT]); 
+    
+    // --- Date Filtering Logic (Remains the same) ---
+    const calculateDateRange = useCallback((timeline) => {
+        const now = new Date();
+        let startDate;
+
+        if (timeline === 'day') {
+            startDate = sub(now, { hours: 24 });
+        } 
+        else if (timeline === 'week') {
+            startDate = sub(now, { weeks: 1 });
+        } 
+        else if (timeline === 'month') {
+            startDate = sub(now, { months: 1 });
+        }
+
+        // Return dates as ISO strings (which the backend will convert to datetime objects)
+        return {
+            date_from: startDate ? startDate.toISOString().split('T')[0] : '', // Keep only date part
+            date_to: now.toISOString().split('T')[0],
+        };
     }, []);
-
-    useEffect(() => {
-        if (Object.keys(filters).length > 0) {
-            fetchReportData(filters);
-        }
-    }, [filters, fetchReportData]);
-
-    // --- Download Logic ---
-    const handleDownload = async (format) => {
-        setDownloadDropdownOpen(false); // Close dropdown after selection
-        setLoading(true);
-        setGlobalError(null);
+    
+    // Function passed to Navbar's "Go" button or Timeline change
+    const handleApplyFilters = useCallback((newFilters) => {
+        // Reset pagination state when filters change
+        setReportData([]);
+        setSkip(0);
+        setHasMore(true);
+        // CRITICAL: Update appliedFilters state here so Navbar receives the current values
+        setAppliedFilters(newFilters); 
         
+        // Immediately fetch data on filter application (skip=0)
+        fetchReportData(newFilters, 0, true);
+    }, [fetchReportData]); // DEPENDS ON fetchReportData
+
+    const handleTimelineChange = useCallback((timeline) => {
+        setActiveTimeline(timeline);
+
+        let newDateFilters = {};
+        if (timeline !== "" && timeline !== null) {
+            newDateFilters = calculateDateRange(timeline);
+        }
+
+        // Merge existing non-date filters (Zone/Street/Unit) with the new date range
+        const filtersToApply = {
+            zone_id: appliedFilters.zone_id || [],
+            street_id: appliedFilters.street_id || [],
+            unit_id: appliedFilters.unit_id || [],
+            ...newDateFilters,
+            date_from: newDateFilters.date_from || '',
+            date_to: newDateFilters.date_to || ''
+        };
+        
+        // Trigger the apply function which resets pagination and fetches data
+        handleApplyFilters(filtersToApply);
+
+    }, [calculateDateRange, appliedFilters, handleApplyFilters]);
+    
+    // Initial load: Set default filter to 'month' and fetch data
+    useEffect(() => {
+        // This check prevents running multiple times if appliedFilters gets set externally
+        if (Object.keys(appliedFilters).length === 0) { 
+            // Set initial filters to be previous month range and then trigger fetch
+            const initialDateFilters = calculateDateRange('month');
+            // We call handleApplyFilters which sets appliedFilters and triggers the fetch
+            handleApplyFilters(initialDateFilters);
+        }
+    }, [appliedFilters, calculateDateRange, handleApplyFilters]);
+
+
+    // --- Infinite Scroll Handler ---
+    const handleScroll = useCallback(() => {
+        const element = scrollContainerRef.current;
+        
+        if (element && hasMore && !loadingInitial && !loadingMore) {
+            // Check if user has scrolled near the bottom (e.g., within 100px of the end)
+            const isNearBottom = element.scrollHeight - element.scrollTop <= element.clientHeight + 100;
+
+            if (isNearBottom) {
+                console.log(`Scrolling to fetch next page (skip: ${skip})`);
+                fetchReportData(appliedFilters, skip, false); // Use appliedFilters
+            }
+        }
+    }, [appliedFilters, skip, hasMore, loadingInitial, loadingMore, fetchReportData]);
+
+
+    // Attach scroll listener
+    useEffect(() => {
+        const element = scrollContainerRef.current;
+        if (element) {
+            element.addEventListener('scroll', handleScroll);
+            return () => element.removeEventListener('scroll', handleScroll);
+        }
+    }, [handleScroll]);
+
+    // --- Download Logic (Now manages its own loading state) ---
+    const handleDownload = async (format) => {
+        setDownloadDropdownOpen(false);
+        setGlobalError(null); 
+        setIsDownloading(true); 
+
         const token = localStorage.getItem('token');
         if (!token) {
-            setGlobalError("Authentication required. Please log in.");
-            setLoading(false);
-            return;
+            setIsDownloading(false);
+            return setGlobalError("Authentication required. Please log in.");
         }
         
-        const queryString = filtersToQueryString(filters);
+        // Use appliedFilters state, which holds the current filter values
+        const queryFilters = { 
+            zone_id: appliedFilters.zone_id, 
+            street_id: appliedFilters.street_id, 
+            unit_id: appliedFilters.unit_id, 
+            date_from: appliedFilters.date_from, 
+            date_to: appliedFilters.date_to,
+        };
+        
+        // Build query string only with filters (no pagination params)
+        const downloadParams = new URLSearchParams();
+        Object.entries(queryFilters).forEach(([key, value]) => {
+            if (value !== null && value !== undefined && value !== "") {
+                if (Array.isArray(value)) {
+                    value.forEach(id => downloadParams.append(key, String(id)));
+                } else {
+                    downloadParams.append(key, String(value));
+                }
+            }
+        });
+        
+        const queryString = downloadParams.toString();
         const downloadUrl = `${DOWNLOAD_URL}?${queryString}`;
 
         try {
@@ -234,15 +394,22 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
             setGlobalError('Network error during file download.');
             console.error('Download error:', error);
         } finally {
-            setLoading(false);
+            setIsDownloading(false); 
         }
     };
+    
 
     return (
         <div className="min-h-screen bg-gray-50 p-6 font-poppins">
             
+            {/* NEW HEADING: Above Navbar */}
+            <h1 className="text-3xl font-extrabold text-[#00BFFF] mb-4 text-center">
+                SLA MODULE - PKG 2 - REPORT
+            </h1>
+
             {/* Navbar and Filters */}
-            <Navbar onFilterChange={setFilters} onLogout={onLogout} currentFilters={filters} />
+            {/* Renamed onFilterChange to onApplyFilters, passed appliedFilters for state sync */}
+            <Navbar onApplyFilters={handleApplyFilters} onLogout={onLogout} currentFilters={appliedFilters} />
 
             <div className="mt-6 flex justify-between items-center pb-4 border-b">
                 <div className="flex items-center space-x-4">
@@ -256,12 +423,12 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
                         <span>Back to Dashboard</span>
                     </button>
                     
-                    <h2 className="text-xl font-bold text-gray-700">Report Page</h2>
+                    <h2 className="text-xl font-bold text-gray-700">Report Page (Pagination: {PAGE_LIMIT} records)</h2>
                 </div>
                 
                 {/* Total Rows Indicator */}
                 <span className="text-md text-gray-600">
-                    Total Rows: {loading ? '...' : totalRows.toLocaleString()}
+                    Total Rows (Filtered): {loadingInitial ? '...' : totalRows.toLocaleString()}
                 </span>
             </div>
 
@@ -285,17 +452,26 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
                     <button 
                         onClick={() => setDownloadDropdownOpen(!downloadDropdownOpen)}
                         className="py-2 px-4 bg-[#00BFFF] text-white rounded-lg hover:bg-sky-600 flex items-center space-x-2 transition duration-150"
-                        disabled={loading || reportData.length === 0}
+                        disabled={loadingInitial || isDownloading || reportData.length === 0}
                     >
-                        <span>Download</span>
-                        <FaDownload />
+                        {isDownloading ? ( 
+                            <>
+                                <FaSpinner className="animate-spin" />
+                                <span>Generating...</span>
+                            </>
+                        ) : (
+                            <>
+                                <span>Download</span>
+                                <FaDownload />
+                            </>
+                        )}
                     </button>
                     {downloadDropdownOpen && (
                         <div className="absolute left-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-xl z-20">
                             <button 
                                 onClick={() => handleDownload('CSV')} 
                                 className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition duration-150 rounded-t-lg"
-                                disabled={loading || reportData.length === 0}
+                                disabled={loadingInitial || isDownloading || reportData.length === 0}
                             >
                                 Download CSV
                             </button>
@@ -314,7 +490,8 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
 
             {/* Table Component */}
             <div className="mt-6">
-                {loading ? (
+                
+                {loadingInitial ? (
                     <div className="text-center py-12 text-[#00BFFF]">
                         <svg className="animate-spin h-8 w-8 text-[#00BFFF] inline-block mr-3" viewBox="0 0 24 24">
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
@@ -323,7 +500,24 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
                         Loading detailed report...
                     </div>
                 ) : (
-                    <TableComponent data={reportData} columns={reportColumns} />
+                    <>
+                        <TableContent data={reportData} columns={reportColumns} ref={scrollContainerRef} />
+                        
+                        {/* Infinite Scroll Loading Indicator */}
+                        {loadingMore && (
+                            <div className="text-center py-4 text-[#00BFFF]">
+                                <svg className="animate-spin h-6 w-6 text-[#00BFFF] inline-block mr-2" viewBox="0 0 24 24"></svg>
+                                Loading more data...
+                            </div>
+                        )}
+                        
+                        {/* End of results message */}
+                        {!hasMore && reportData.length > 0 && !loadingMore && (
+                            <div className="text-center py-4 text-gray-500 text-sm">
+                                End of report data. ({reportData.length} of {totalRows.toLocaleString()} displayed)
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
         </div>
