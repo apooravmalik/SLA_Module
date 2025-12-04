@@ -11,7 +11,8 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000
 const DASHBOARD_URL = `${API_BASE_URL}/dashboard/`;
 
 // --- KPICard Component ---
-const KPICard = ({ title, value, icon: Icon, isPenalty = false, isStatic = false, onClick }) => {
+// UPDATED: context replaces reportType and is passed directly to onClick
+const KPICard = ({ title, value, icon: Icon, isPenalty = false, isStatic = false, onClick, context }) => {
     // Using Tailwind arbitrary values (literals) for colors
     const cardClass = isPenalty
         ? 'bg-white border-2 border-orange-400 text-orange-600 shadow-lg'
@@ -24,7 +25,7 @@ const KPICard = ({ title, value, icon: Icon, isPenalty = false, isStatic = false
 
     return (
         <div 
-            onClick={onClick}
+            onClick={() => onClick(context)} // MODIFIED: Call onClick with the context object
             role="button" 
             className={`p-6 rounded-xl transition duration-300 ease-in-out hover:shadow-xl cursor-pointer flex flex-col justify-between ${cardClass}`}
         >
@@ -43,7 +44,8 @@ const KPICard = ({ title, value, icon: Icon, isPenalty = false, isStatic = false
 };
 
 // --- DashboardPage Component ---
-const DashboardPage = ({ onLogout, onGoToReport }) => { // Props added
+// UPDATED PROPS: Added onGoToMasterData
+const DashboardPage = ({ onLogout, onGoToReport, onGoToMasterData }) => { 
     const [filters, setFilters] = useState({});
     const [kpiData, setKpiData] = useState({ 
         total_zones: 0, 
@@ -144,7 +146,7 @@ const DashboardPage = ({ onLogout, onGoToReport }) => { // Props added
         // Initial load will use the default filter state (empty object), 
         // relying on the backend to apply its default date range (previous month).
         fetchDashboardData(filters);
-    }, []); // Only runs once on mount.
+    }, [fetchDashboardData]); // Only runs once on mount.
 
     return (
         <div className="min-h-screen bg-gray-50 p-6 font-poppins">
@@ -177,16 +179,40 @@ const DashboardPage = ({ onLogout, onGoToReport }) => { // Props added
             {!loading && (
                 <div className="grid grid-cols-1 md:grid-cols-2 pt-5 lg:grid-cols-3 gap-6">
                     
-                    {/* First Row: Static KPIs */}
-                    <KPICard title="Total Zones" value={kpiData.total_zones} icon={FaMapMarkerAlt} isStatic={true} onClick={onGoToReport} />
-                    <KPICard title="Total Streets" value={kpiData.total_streets} icon={FaRoad} isStatic={true} onClick={onGoToReport} />
-                    <KPICard title="Total Units" value={kpiData.total_units} icon={FaBuilding} isStatic={true} onClick={onGoToReport} />
+                    {/* First Row: Static KPIs - Navigate to the NEW MasterDataPage */}
+                    <KPICard 
+                        title="Total Constituencies" value={kpiData.total_zones} icon={FaMapMarkerAlt} isStatic={true} 
+                        onClick={onGoToMasterData} 
+                        context={{ type: 'zone', subtype: 'zone', title: 'All Constituencies' }} // type: zone
+                    />
+                    <KPICard 
+                        title="Total RWAs" value={kpiData.total_streets} icon={FaRoad} isStatic={true} 
+                        onClick={onGoToMasterData} 
+                        context={{ type: 'street', subtype: 'street', title: 'All RWAs' }} // type: street
+                    />
+                    <KPICard 
+                        title="Total Packages" value={kpiData.total_units} icon={FaBuilding} isStatic={true} 
+                        onClick={onGoToMasterData} 
+                        context={{ type: 'unit', subtype: 'unit', title: 'All Packages' }} // type: unit
+                    />
 
-                    {/* Second Row: Dynamic KPIs */}
-                    <KPICard title="Total Open Incidents" value={kpiData.total_open_incidents} icon={FaExclamationTriangle} onClick={onGoToReport} />
-                    <KPICard title="Total Closed Incidents" value={kpiData.total_closed_incidents} icon={FaCheckCircle} onClick={onGoToReport} />
+                    {/* Second Row: Dynamic KPIs - Navigate to the NEW MasterDataPage (type: incident) */}
+                    <KPICard 
+                        title="Total Open Incidents" value={kpiData.total_open_incidents} icon={FaExclamationTriangle} 
+                        onClick={onGoToMasterData} // CHANGED to MasterDataPage
+                        context={{ type: 'incident', subtype: 'incident_open', status: 1, filters: filters }} // status: 1 (Open)
+                    />
+                    <KPICard 
+                        title="Total Closed Incidents" value={kpiData.total_closed_incidents} icon={FaCheckCircle} 
+                        onClick={onGoToMasterData} // CHANGED to MasterDataPage
+                        context={{ type: 'incident', subtype: 'incident_closed', status: 2, filters: filters }} // status: 2 (Closed)
+                    />
                     
-                    <KPICard title="Penalty Calculation" value={kpiData.total_penalty} icon={FaMoneyBill} isPenalty={true} onClick={onGoToReport} />
+                    <KPICard 
+                        title="Penalty Calculation" value={kpiData.total_penalty} icon={FaMoneyBill} isPenalty={true} 
+                        onClick={onGoToReport} 
+                        context={{ type: 'dynamic', incidentStatus: 'penalty', filters: filters }} // Penalty still goes to ReportPage
+                    />
                 </div>
             )}
         </div>

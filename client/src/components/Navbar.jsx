@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import MultiSelectDropdown from './MultiSelectDropdown'; // Import MultiSelectDropdown
 import belLogo from "../assets/bel_logo.png";
+import { FaPlay } from 'react-icons/fa';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'; 
 const MASTER_DATA_URL = `${API_BASE_URL}/master/filters`;
@@ -105,29 +106,29 @@ const Navbar = ({ onApplyFilters, onLogout, currentFilters = {} }) => {
                 {/* Filters and Go Button */}
                 <div className="flex space-x-4 items-center">
                     
-                    {/* Zone Dropdown (Now Independent) */}
+                      {/* Constituency Dropdown (Now Independent) */}
                     <MultiSelectDropdown
                         name="zone_id"
-                        label="ZONE"
+                        label="CONSTITUENCY"
                         options={options.zones}
                         selectedIds={filters.zone_id}
                         onChange={handleMultiSelectChange}
                     />
 
-                    {/* Street Dropdown (Now Independent) */}
+                    {/* RWA Dropdown (Now Independent) */}
                     <MultiSelectDropdown
                         name="street_id"
-                        label="STREET"
+                        label="RWA"
                         options={options.streets}
                         selectedIds={filters.street_id}
                         onChange={handleMultiSelectChange}
                         // REMOVED disabled logic
                     />
                     
-                    {/* Unit Dropdown (Now Independent) */}
+                    {/* Package Dropdown (Now Independent) */}
                     <MultiSelectDropdown
                         name="unit_id"
-                        label="UNIT"
+                        label="PACKAGE"
                         options={options.units}
                         selectedIds={filters.unit_id}
                         onChange={handleMultiSelectChange}

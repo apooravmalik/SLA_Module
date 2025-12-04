@@ -105,3 +105,57 @@ class ReportRow(BaseModel):
 class ReportResponse(BaseModel):
     total_rows: int
     data: list[ReportRow]
+    
+class IncidentDetail(BaseModel):
+    IncidentLog_PRK: int
+    inlIncidentDetails_MEM: Optional[str] = None
+    inlDateTime_DTM: datetime
+    inlCategory_FRK: Optional[int] = None
+    CategoryName: Optional[str] = None
+    inlStatus_FRK: Optional[int] = None
+    StatusName: Optional[str] = None
+    inlZone_FRK: Optional[int] = None
+    ZoneName: Optional[str] = None
+    inlStreet_FRK: Optional[int] = None
+    StreetName: Optional[str] = None
+    inlUnit_FRK: Optional[int] = None
+    UnitName: Optional[str] = None
+    UnitDetails: Optional[str] = None # Corresponds to untOtherInfo_MEM alias
+
+class IncidentListResponse(BaseModel):
+    total_count: int
+    data: List[IncidentDetail]    
+    
+# Schema for Zone Data (Total Zones KPI)
+class ZoneDetail(BaseModel):
+    CameraZone_PRK: int
+    cznName_TXT: str
+
+class ZoneListResponse(BaseModel):
+    total_count: int
+    data: List[ZoneDetail]
+
+# Schema for Street Data (Total Streets KPI)
+class StreetDetail(BaseModel):
+    Street_PRK: int
+    StreetName: str
+    strDescription_MEM: Optional[str] = None
+    strPostCode_TXT: Optional[str] = None
+    ZoneName: Optional[str] = None # Name of the linked zone (can be null if no link or multiple zones)
+
+class StreetListResponse(BaseModel):
+    total_count: int
+    data: List[StreetDetail]
+
+# Schema for Unit Data (Total Units KPI)
+class UnitDetail(BaseModel):
+    Unit_PRK: int
+    untUnitName_TXT: Optional[str] = None
+    untBuilding_FRK: Optional[int] = None
+    untStreet_FRK: Optional[int] = None
+    untZone_FRK: Optional[int] = None
+    untDescription_MEM: Optional[str] = None
+    
+class UnitListResponse(BaseModel):
+    total_count: int
+    data: List[UnitDetail]

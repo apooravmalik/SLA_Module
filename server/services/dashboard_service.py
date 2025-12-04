@@ -139,7 +139,6 @@ async def calculate_penalty(db: Session, filters: DashboardFilters) -> Decimal:
     await asyncio.sleep(0.05)
 
     # ---------- DATE LOGIC ----------
-    # Use the SAME logic as your working SQL (previous month by default)
     if filters.date_from and filters.date_to:
         start_date = filters.date_from
         end_date = filters.date_to
@@ -152,7 +151,7 @@ async def calculate_penalty(db: Session, filters: DashboardFilters) -> Decimal:
         start_date = first_day_prev_month
         end_date = first_day_this_month
 
-    # ---------- Filter Lists ----------
+    # ---------- Filter Lists (for STRING_SPLIT) ----------
     zone_list = ",".join(str(z) for z in filters.zone_id) if filters.zone_id else ""
     street_list = ",".join(str(s) for s in filters.street_id) if filters.street_id else ""
     unit_list = ",".join(str(u) for u in filters.unit_id) if filters.unit_id else ""
@@ -165,41 +164,10 @@ async def calculate_penalty(db: Session, filters: DashboardFilters) -> Decimal:
         "unit_list": unit_list,
     }
 
-    # ---------- FULL SQL ----------
+    # ---------- FULL SQL (NEW ROBUST LOGIC) ----------
     penalty_sql = text(f"""
-        WITH MonthData AS (
-            SELECT *
-            FROM {DB_SCHEMA}.IncidentLog_TBL
-            WHERE inlDateTime_DTM >= :start_date
-              AND inlDateTime_DTM <  :end_date
-        ),
-
-        LatestOffline AS (
+        WITH PenaltyBase AS (
             SELECT
-                inlSourceDevice_FRK AS Device_PRK,
-                inlDateTime_DTM AS OfflineTime,
-                ROW_NUMBER() OVER (
-                    PARTITION BY inlSourceDevice_FRK
-                    ORDER BY inlDateTime_DTM DESC
-                ) AS rn
-            FROM MonthData
-            WHERE inlAlarmMessage_TXT LIKE '%Channel disconnect%'
-        ),
-
-        LatestOnline AS (
-            SELECT
-                m.inlSourceDevice_FRK AS Device_PRK,
-                m.inlDateTime_DTM AS OnlineTime
-            FROM MonthData m
-            JOIN LatestOffline lo
-                ON m.inlSourceDevice_FRK = lo.Device_PRK
-               AND lo.rn = 1
-               AND m.inlDateTime_DTM > lo.OfflineTime
-            WHERE m.inlAlarmMessage_TXT LIKE '%Channel connected%'
-        ),
-
-        PenaltyBase AS (
-            SELECT 
                 n.NVR_PRK,
                 n.nvrAlias_TXT,
                 n.nvrIPAddress_TXT,
@@ -207,54 +175,125 @@ async def calculate_penalty(db: Session, filters: DashboardFilters) -> Decimal:
                 cam.Camera_PRK,
                 cam.camName_TXT,
 
-                g.gclZone_FRK,
+                gr.gclZone_FRK,
                 z.cznName_TXT AS ZoneName,
-
-                g.gclStreet_FRK,
+                gr.gclStreet_FRK,
                 s.strName_TXT AS StreetName,
-
-                g.gclBuilding_FRK,
+                gr.gclBuilding_FRK,
                 b.bldBuildingName_TXT AS BuildingName,
-
-                g.gclUnit_FRK,
+                gr.gclUnit_FRK,
                 u.untUnitName_TXT AS UnitName,
 
-                lo.OfflineTime AS LatestOffline,
-                lon.OnlineTime AS LatestOnline,
+                lo.OfflineTime,
+                lon.OnlineTime,
+                eff.EffectiveEndForMonth, 
 
-                DATEDIFF(MINUTE, lo.OfflineTime, lon.OnlineTime) AS OfflineMinutes,
+                -- Offline minutes clipped within the reporting month
+                CAST(
+                    CASE 
+                        WHEN lo.OfflineTime IS NULL THEN NULL
+                        WHEN eff.EffectiveEndForMonth < lo.OfflineTime THEN 0
+                        ELSE DATEDIFF(MINUTE, lo.OfflineTime, eff.EffectiveEndForMonth)
+                    END AS INT
+                ) AS OfflineMinutes,
 
-                CASE 
-                    WHEN DATEDIFF(MINUTE, lo.OfflineTime, lon.OnlineTime) >= 1440 
-                        THEN (DATEDIFF(MINUTE, lo.OfflineTime, lon.OnlineTime) / 1440) * 5
-                    ELSE 0
-                END AS PenaltyAmount
+                -- Penalty: if OfflineMinutes >= 1440 then ceil(hours)*500 else 0
+                CAST(
+                    CASE
+                        WHEN lo.OfflineTime IS NULL THEN 0
+                        ELSE
+                            CASE
+                                WHEN CAST(
+                                        CASE 
+                                            WHEN eff.EffectiveEndForMonth < lo.OfflineTime THEN 0
+                                            ELSE DATEDIFF(MINUTE, lo.OfflineTime, eff.EffectiveEndForMonth)
+                                        END AS FLOAT
+                                    ) >= 1440 
+                                THEN CEILING(
+                                        CAST(
+                                            CASE 
+                                                WHEN eff.EffectiveEndForMonth < lo.OfflineTime THEN 0
+                                                ELSE DATEDIFF(MINUTE, lo.OfflineTime, eff.EffectiveEndForMonth)
+                                            END AS FLOAT
+                                        ) / 60.0
+                                    ) * 500.0
+                                ELSE 0.0
+                            END
+                    END AS DECIMAL(10, 2)
+                ) AS PenaltyAmount
 
-            FROM {DB_SCHEMA}.NVR_TBL n
-            JOIN {DB_SCHEMA}.NVRChannel_TBL nc ON nc.nchNVR_FRK = n.NVR_PRK
-            JOIN {DB_SCHEMA}.Camera_TBL cam ON cam.Camera_PRK = nc.nchCamera_FRK
+            FROM {DB_SCHEMA}.Camera_TBL cam
+            
+            -- NVR mapping
+            LEFT JOIN {DB_SCHEMA}.NVRChannel_TBL nc ON nc.nchCamera_FRK = cam.Camera_PRK
+            LEFT JOIN {DB_SCHEMA}.NVR_TBL n ON n.NVR_PRK = nc.nchNVR_FRK
 
-            LEFT JOIN {DB_SCHEMA}.GeoRollupCameraLink_TBL g ON g.gclCamera_FRK = cam.Camera_PRK
-            LEFT JOIN {DB_SCHEMA}.CameraZone_TBL z ON z.CameraZone_PRK = g.gclZone_FRK
-            LEFT JOIN {DB_SCHEMA}.Street_TBL s ON s.Street_PRK = g.gclStreet_FRK
-            LEFT JOIN {DB_SCHEMA}.Building_TBL b ON b.Building_PRK = g.gclBuilding_FRK
-            LEFT JOIN {DB_SCHEMA}.Unit_TBL u ON u.Unit_PRK = g.gclUnit_FRK
+            -- Pick one geo-link per camera (TOP 1) to avoid duplication
+            OUTER APPLY (
+                SELECT TOP (1) g.*
+                FROM {DB_SCHEMA}.GeoRollupCameraLink_TBL g
+                WHERE g.gclCamera_FRK = cam.Camera_PRK
+            ) gr
+            LEFT JOIN {DB_SCHEMA}.CameraZone_TBL z ON z.CameraZone_PRK = gr.gclZone_FRK
+            LEFT JOIN {DB_SCHEMA}.Street_TBL s ON s.Street_PRK = gr.gclStreet_FRK
+            LEFT JOIN {DB_SCHEMA}.Building_TBL b ON b.Building_PRK = gr.gclBuilding_FRK
+            LEFT JOIN {DB_SCHEMA}.Unit_TBL u ON u.Unit_PRK = gr.gclUnit_FRK
 
-            LEFT JOIN LatestOffline lo ON lo.Device_PRK = cam.Camera_PRK
-            LEFT JOIN LatestOnline lon ON lon.Device_PRK = cam.Camera_PRK
+            -- Latest disconnect inside the period
+            OUTER APPLY (
+                SELECT TOP (1)
+                    il.inlDateTime_DTM AS OfflineTime
+                FROM {DB_SCHEMA}.IncidentLog_TBL il
+                WHERE il.inlSourceDevice_FRK = cam.Camera_PRK
+                  AND il.inlDateTime_DTM >= :start_date
+                  AND il.inlDateTime_DTM < :end_date
+                  AND il.inlAlarmMessage_TXT LIKE '%Channel disconnect%'
+                ORDER BY il.inlDateTime_DTM DESC
+            ) lo
+
+            -- First recovery after that disconnect (within period window; may be NULL)
+            OUTER APPLY (
+                SELECT TOP (1)
+                    il2.inlDateTime_DTM AS OnlineTime
+                FROM {DB_SCHEMA}.IncidentLog_TBL il2
+                WHERE il2.inlSourceDevice_FRK = cam.Camera_PRK
+                  AND il2.inlDateTime_DTM >= :start_date
+                  AND il2.inlDateTime_DTM < :end_date
+                  AND il2.inlAlarmMessage_TXT LIKE '%Channel connected%'
+                  AND lo.OfflineTime IS NOT NULL
+                  AND il2.inlDateTime_DTM > lo.OfflineTime
+                ORDER BY il2.inlDateTime_DTM ASC
+            ) lon
+
+            -- Compute EffectiveEndForMonth once (clip recovery to end date or GETDATE)
+            CROSS APPLY (
+                SELECT
+                    CASE 
+                        WHEN lo.OfflineTime IS NULL THEN NULL
+                        ELSE
+                            CASE 
+                                WHEN lon.OnlineTime IS NOT NULL AND lon.OnlineTime <= :end_date THEN lon.OnlineTime
+                                WHEN lon.OnlineTime IS NOT NULL AND lon.OnlineTime > :end_date THEN :end_date
+                                WHEN lon.OnlineTime IS NULL AND GETDATE() <= :end_date THEN GETDATE()
+                                ELSE :end_date
+                            END
+                    END AS EffectiveEndForMonth
+            ) eff
+
+            WHERE b.bldAlarmContractNumber_TXT = 'PWD'
         )
 
         SELECT SUM(PenaltyAmount) AS TotalPenalty
         FROM PenaltyBase
         WHERE 
             ( COALESCE(:zone_list, '') = '' 
-              OR gclZone_FRK IN (SELECT TRIM([value]) FROM STRING_SPLIT(:zone_list, ',')) )
+              OR gclZone_FRK IN (SELECT TRIM([value]) FROM STRING_SPLIT(:zone_list, ',')) ) -- FIXED: Removed gr.
 
           AND ( COALESCE(:street_list, '') = '' 
-              OR gclStreet_FRK IN (SELECT TRIM([value]) FROM STRING_SPLIT(:street_list, ',')) )
+              OR gclStreet_FRK IN (SELECT TRIM([value]) FROM STRING_SPLIT(:street_list, ',')) ) -- FIXED: Removed gr.
 
           AND ( COALESCE(:unit_list, '') = '' 
-              OR gclUnit_FRK IN (SELECT TRIM([value]) FROM STRING_SPLIT(:unit_list, ',')) );
+              OR gclUnit_FRK IN (SELECT TRIM([value]) FROM STRING_SPLIT(:unit_list, ',')) ); -- FIXED: Removed gr.
     """)
 
     # Debug log

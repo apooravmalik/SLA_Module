@@ -2,7 +2,7 @@
 /* eslint-disable no-unused-vars */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Navbar from './Navbar'; 
-import { FaDownload, FaArrowLeft } from 'react-icons/fa';
+import { FaDownload, FaArrowLeft, FaSpinner } from 'react-icons/fa';
 import { sub } from 'date-fns';
 
 // ------------------------------------------------------------------
@@ -113,7 +113,7 @@ const TableContent = React.forwardRef(({ data, columns }, ref) => {
 });
 
 
-const ReportPage = ({ onGoToDashboard, onLogout }) => {
+const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATED PROP: reportContext
     // State to hold the filters currently applied to the report data
     const [appliedFilters, setAppliedFilters] = useState({});
     const [reportData, setReportData] = useState([]);
@@ -129,12 +129,13 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
     const [globalError, setGlobalError] = useState(null);
     const [activeTimeline, setActiveTimeline] = useState('month'); // Default is now 'month'
     const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
+    const [isDownloading, setIsDownloading] = useState(false); // NEW STATE for download status
     
     // Ref to the scrollable table container
     const scrollContainerRef = useRef(null);
 
     // Helper to convert filters (including date/pagination) to query string
-    const filtersToQueryString = (currentFilters, currentSkip) => {
+    const filtersToQueryString = useCallback((currentFilters, currentSkip, isDownload = false) => {
         const params = new URLSearchParams();
 
         Object.entries(currentFilters).forEach(([key, value]) => {
@@ -152,12 +153,16 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
             }
         });
 
-        // Add pagination params explicitly
-        params.append('skip', currentSkip);
-        params.append('limit', PAGE_LIMIT);
+        // Add pagination params explicitly only if not downloading
+        if (!isDownload) {
+             params.append('skip', currentSkip);
+             params.append('limit', PAGE_LIMIT);
+        } else {
+             // For downloads, rely on the backend's explicit high limit (500000)
+        }
 
         return params.toString();
-    };
+    }, []); 
 
     // --- Date Filtering Logic (Remains the same) ---
     const calculateDateRange = useCallback((timeline) => {
@@ -194,23 +199,16 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
         setSkip(0);
         setHasMore(true);
 
-        setFilters(prev => ({ 
+        setAppliedFilters(prev => ({ 
             ...prev, 
             ...newDateFilters, 
             date_from: newDateFilters.date_from || '',
             date_to: newDateFilters.date_to || ''
         }));
-
+        // The main useEffect will trigger the fetch due to appliedFilters change
     }, [calculateDateRange]);
     
-    // Initial load: Set default filter to 'month'
-    useEffect(() => {
-        if (Object.keys(filters).length === 0) { 
-            handleTimelineChange('month'); 
-        }
-    }, [filters, handleTimelineChange]);
-
-
+    
     // --- Data Fetching (PAGINATED) ---
     // isNewFilter = true for initial load or filter change, false for infinite scroll
     const fetchReportData = useCallback(async (currentFilters, currentSkip, isNewFilter = true) => {
@@ -219,8 +217,8 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
         
         if (isNewFilter) {
             setLoadingInitial(true);
-            setReportData([]);
-            setSkip(0);
+            // Don't clear reportData here if it's the first fetch from context, 
+            // the context logic ensures initialFilters are set correctly.
         } else {
             setLoadingMore(true);
         }
@@ -234,7 +232,7 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
             return;
         }
 
-        const queryString = filtersToQueryString(currentFilters, currentSkip);
+        const queryString = filtersToQueryString(currentFilters, currentSkip, false);
         
         console.log("REPORT API Request (Query String):", queryString);
         
@@ -280,15 +278,69 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
             setLoadingInitial(false);
             setLoadingMore(false);
         }
-    }, [hasMore, PAGE_LIMIT]); 
+    }, [hasMore, filtersToQueryString]); 
 
-    // Effect hook to trigger the initial fetch or a fetch on filter/date change
+    
+    // NEW: Handler for the 'Go' button click from Navbar
+    const handleApplyFilters = useCallback((newFilters) => {
+        // Reset pagination when a new filter is applied manually
+        setReportData([]);
+        setSkip(0);
+        setHasMore(true);
+        
+        // The newFilters contains the filter values from the Navbar state
+        setAppliedFilters(newFilters);
+        
+        // Check if date filters are empty to correctly set the timeline view
+        const isDateFilterApplied = newFilters.date_from || newFilters.date_to;
+        setActiveTimeline(isDateFilterApplied ? '' : 'month');
+        
+        // Trigger the fetch with the new filters
+        fetchReportData(newFilters, 0, true);
+    }, [fetchReportData]);
+
+    // Initial load and Filter Synchronization Logic (MODIFIED)
     useEffect(() => {
-        // Trigger initial fetch (skip=0) if filters exist
-        if (Object.keys(filters).length > 0) {
-            fetchReportData(filters, 0, true);
+        let initialFilters = {};
+        let initialTimeline = 'month';
+
+        if (reportContext) {
+            // --- Logic for KPI Card Click Context ---
+            if (reportContext.type === 'static') {
+                // Static KPI clicked: show ALL records (empty filters)
+                initialFilters = {};
+                initialTimeline = 'month';
+                
+            } else if (reportContext.type === 'dynamic') {
+                // Dynamic KPI clicked: use the filters that were active on the Dashboard
+                initialFilters = {
+                    zone_id: reportContext.filters?.zone_id || [], 
+                    street_id: reportContext.filters?.street_id || [], 
+                    unit_id: reportContext.filters?.unit_id || [], 
+                    date_from: reportContext.filters?.date_from || '', 
+                    date_to: reportContext.filters?.date_to || ''
+                };
+                
+                // If the dashboard filters included an explicit date range, set timeline to 'Custom'
+                if (initialFilters.date_from || initialFilters.date_to) {
+                    initialTimeline = '';
+                } else {
+                    // Otherwise, rely on the backend default date, set view to 'month'
+                    initialTimeline = 'month';
+                }
+            }
+            
+            // Apply initial state from context
+            setAppliedFilters(initialFilters);
+            setActiveTimeline(initialTimeline); 
+            fetchReportData(initialFilters, 0, true);
+            
+        } else if (Object.keys(appliedFilters).length === 0) { 
+            // Original logic for direct navigation (e.g., from a fresh login without context)
+            handleTimelineChange('month'); 
         }
-    }, [filters]); 
+    }, [reportContext, fetchReportData, handleTimelineChange]); // Depend on reportContext
+
 
     // --- Infinite Scroll Handler ---
     const handleScroll = useCallback(() => {
@@ -300,10 +352,10 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
 
             if (isNearBottom) {
                 console.log(`Scrolling to fetch next page (skip: ${skip})`);
-                fetchReportData(filters, skip, false);
+                fetchReportData(appliedFilters, skip, false);
             }
         }
-    }, [filters, skip, hasMore, loadingInitial, loadingMore, fetchReportData]);
+    }, [appliedFilters, skip, hasMore, loadingInitial, loadingMore, fetchReportData]);
 
 
     // Attach scroll listener
@@ -318,21 +370,16 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
     // --- Download Logic (Excludes pagination parameters) ---
     const handleDownload = async (format) => {
         setDownloadDropdownOpen(false);
-        const token = localStorage.getItem('token');
-        if (!token) return setGlobalError("Authentication required. Please log in.");
+        setIsDownloading(true); // Set downloading state
         
-        // Use an empty skip/limit value to ensure the backend fetches ALL data for download
-        const queryFilters = { 
-            zone_id: filters.zone_id, 
-            street_id: filters.street_id, 
-            unit_id: filters.unit_id, 
-            date_from: filters.date_from, 
-            date_to: filters.date_to,
-        };
-        // The download route calls the original GET route, which will pass 0/500 if not explicitly passed here.
-        // It's safer to rely on the backend's default behavior for the download route (which should be full fetch). 
-        // We ensure we only pass the filter values, not the current pagination state.
-        const queryString = filtersToQueryString(queryFilters, 0); // Pass skip=0 and limit=500 for the final conversion, though the endpoint may ignore them.
+        const token = localStorage.getItem('token');
+        if (!token) {
+            setIsDownloading(false);
+            return setGlobalError("Authentication required. Please log in.");
+        }
+        
+        // Pass 'true' for isDownload to exclude skip/limit
+        const queryString = filtersToQueryString(appliedFilters, 0, true); 
         const downloadUrl = `${DOWNLOAD_URL}?${queryString}`;
 
         try {
@@ -367,7 +414,7 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
             setGlobalError('Network error during file download.');
             console.error('Download error:', error);
         } finally {
-            setLoadingInitial(false); 
+            setIsDownloading(false); // Clear downloading state
         }
     };
     
@@ -381,7 +428,6 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
             </h1>
 
             {/* Navbar and Filters */}
-            {/* Renamed onFilterChange to onApplyFilters, passed appliedFilters for state sync */}
             <Navbar onApplyFilters={handleApplyFilters} onLogout={onLogout} currentFilters={appliedFilters} />
 
             <div className="mt-6 flex justify-between items-center pb-4 border-b">
@@ -425,7 +471,7 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
                     <button 
                         onClick={() => setDownloadDropdownOpen(!downloadDropdownOpen)}
                         className="py-2 px-4 bg-[#00BFFF] text-white rounded-lg hover:bg-sky-600 flex items-center space-x-2 transition duration-150"
-                        disabled={loadingInitial || reportData.length === 0}
+                        disabled={loadingInitial || reportData.length === 0 || isDownloading}
                     >
                         {isDownloading ? ( 
                             <>
@@ -444,7 +490,7 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
                             <button 
                                 onClick={() => handleDownload('CSV')} 
                                 className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition duration-150 rounded-t-lg"
-                                disabled={loadingInitial || reportData.length === 0}
+                                disabled={loadingInitial || reportData.length === 0 || isDownloading}
                             >
                                 Download CSV
                             </button>
@@ -479,7 +525,10 @@ const ReportPage = ({ onGoToDashboard, onLogout }) => {
                         {/* Infinite Scroll Loading Indicator */}
                         {loadingMore && (
                             <div className="text-center py-4 text-[#00BFFF]">
-                                <svg className="animate-spin h-6 w-6 text-[#00BFFF] inline-block mr-2" viewBox="0 0 24 24"></svg>
+                                <svg className="animate-spin h-6 w-6 text-[#00BFFF] inline-block mr-2" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
                                 Loading more data...
                             </div>
                         )}
