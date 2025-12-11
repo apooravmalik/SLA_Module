@@ -39,7 +39,7 @@ const Navbar = ({ onApplyFilters, onLogout, currentFilters = {} }) => {
         const token = localStorage.getItem('token');
         if (!token) return;
 
-        // Since the server now ignores zone_ids/street_ids, we pass no query string
+        // Since the requirement is no cascading, we fetch all filters with no query params.
         try {
             const response = await fetch(MASTER_DATA_URL, {
                 headers: { 'Authorization': `Bearer ${token}` }
@@ -55,9 +55,8 @@ const Navbar = ({ onApplyFilters, onLogout, currentFilters = {} }) => {
         }
     }, []);
 
-    // Initial load effect
+    // Initial load effect (Fetch ALL master data only once on mount.)
     useEffect(() => {
-        // Fetch ALL master data only once on mount.
         fetchMasterData();
     }, [fetchMasterData]); 
 
@@ -66,9 +65,7 @@ const Navbar = ({ onApplyFilters, onLogout, currentFilters = {} }) => {
         // 1. Update local state with the new list of IDs
         const newFilters = { ...filters, [name]: value };
         
-        // 2. REMOVED: Logic to clear dependent filters (no cascading).
-        
-        // 3. Update local state. DO NOT call the parent API handler here.
+        // 2. Update local state. DO NOT call the parent API handler here.
         setFilters(newFilters);
         
         console.log("Filters Updated (Multi-Select):", newFilters);
@@ -122,7 +119,6 @@ const Navbar = ({ onApplyFilters, onLogout, currentFilters = {} }) => {
                         options={options.streets}
                         selectedIds={filters.street_id}
                         onChange={handleMultiSelectChange}
-                        // REMOVED disabled logic
                     />
                     
                     {/* Package Dropdown (Now Independent) */}
@@ -132,7 +128,6 @@ const Navbar = ({ onApplyFilters, onLogout, currentFilters = {} }) => {
                         options={options.units}
                         selectedIds={filters.unit_id}
                         onChange={handleMultiSelectChange}
-                        // REMOVED disabled logic
                     />
                     
                     {/* Calendar (Date From) */}

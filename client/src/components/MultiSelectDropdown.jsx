@@ -1,21 +1,34 @@
 // src/components/MultiSelectDropdown.jsx
-import React, { useState, useEffect, useRef } from 'react';
-import { FaChevronDown } from 'react-icons/fa';
+import React, { useState, useEffect, useRef, useMemo } from 'react'; // Added useMemo
+import { FaChevronDown, FaSearch } from 'react-icons/fa'; // Added FaSearch icon
 
 const MultiSelectDropdown = ({ name, label, options, selectedIds, onChange, disabled = false }) => {
     const [isOpen, setIsOpen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState(''); // NEW STATE for search input
     const dropdownRef = useRef(null);
 
-    // Close dropdown when clicking outside
+    // Close dropdown when clicking outside and clear search
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
                 setIsOpen(false);
+                setSearchTerm(''); // Clear search when closing
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
+
+    // Memoize the filtered options for performance
+    const filteredOptions = useMemo(() => {
+        if (!searchTerm) {
+            return options;
+        }
+        const lowerCaseSearch = searchTerm.toLowerCase();
+        return options.filter(option =>
+            option.name.toLowerCase().includes(lowerCaseSearch)
+        );
+    }, [options, searchTerm]);
 
     const handleCheckboxChange = (id) => {
         const idInt = parseInt(id, 10);
@@ -32,13 +45,26 @@ const MultiSelectDropdown = ({ name, label, options, selectedIds, onChange, disa
     };
 
     const selectedCount = selectedIds.length;
-    const isAllSelected = selectedCount === options.length && options.length > 0;
+    
+    // Check if ALL currently filtered options are selected
+    const isAllSelected = filteredOptions.length > 0 && 
+        filteredOptions.every(option => selectedIds.includes(option.id));
+    
+    // Check if ALL options across the *entire list* are selected (for display text only)
+    const isAllUnfilteredSelected = selectedCount === options.length && options.length > 0;
 
     const toggleAll = () => {
         if (isAllSelected) {
-            onChange({ name, value: [] });
+            // Unselect all currently FILTERED items
+            const idsToKeep = selectedIds.filter(id => 
+                !filteredOptions.some(option => option.id === id)
+            );
+            onChange({ name, value: idsToKeep });
         } else {
-            onChange({ name, value: options.map(opt => opt.id) });
+            // Select all currently FILTERED items, preserving other selections
+            const idsToSelect = filteredOptions.map(opt => opt.id);
+            const combinedIds = [...new Set([...selectedIds, ...idsToSelect])];
+            onChange({ name, value: combinedIds });
         }
     };
 
@@ -53,7 +79,10 @@ const MultiSelectDropdown = ({ name, label, options, selectedIds, onChange, disa
                     focus:outline-none focus:ring-2 focus:ring-[#00BFFF]`}
             >
                 <span className="truncate">
-                    {selectedCount === 0 
+                    {/* Display text based on UNFILTERED selection count */}
+                    {isAllUnfilteredSelected 
+                        ? `${label} (All)` 
+                        : selectedCount === 0 
                         ? `${label} (All)` 
                         : selectedCount === 1 
                         ? options.find(o => o.id === selectedIds[0])?.name || `${label} (1)`
@@ -63,31 +92,53 @@ const MultiSelectDropdown = ({ name, label, options, selectedIds, onChange, disa
             </button>
 
             {isOpen && (
-                <div className="absolute mt-2 w-60 max-h-64 overflow-y-auto rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 p-2">
-                    <label className="flex items-center space-x-2 py-1 px-2 border-b cursor-pointer hover:bg-gray-50">
+                <div className="absolute mt-2 w-60 max-h-80 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 p-2">
+                    
+                    {/* NEW: Search Input */}
+                    <div className="mb-2 flex items-center border border-gray-300 rounded-md bg-gray-50 px-2 py-1">
+                        <FaSearch className="w-3 h-3 text-gray-400 mr-2" />
+                        <input
+                            type="text"
+                            placeholder={`Search ${label}...`}
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full text-sm bg-transparent focus:outline-none text-gray-700"
+                            autoFocus
+                        />
+                    </div>
+
+                    {/* Select All */}
+                    <label className="flex items-center space-x-2 py-1 px-2 border-b cursor-pointer hover:bg-gray-50 sticky top-0 bg-white z-10">
                         <input
                             type="checkbox"
-                            checked={isAllSelected}
+                            // If search is active, check against filtered list, otherwise check against total list
+                            checked={searchTerm ? isAllSelected : isAllUnfilteredSelected}
                             onChange={toggleAll}
                             className="text-[#00BFFF] focus:ring-[#00BFFF]"
                         />
-                        <span className="font-semibold text-gray-700">Select All ({options.length})</span>
+                        <span className="font-semibold text-gray-700">
+                            Select All ({filteredOptions.length} {searchTerm && `of ${options.length}`})
+                        </span>
                     </label>
-                    {options.length === 0 ? (
-                        <p className="text-gray-500 text-sm p-2">No options available.</p>
-                    ) : (
-                        options.map((option) => (
-                            <label key={option.id} className="flex items-center space-x-2 py-1 px-2 cursor-pointer hover:bg-gray-50">
-                                <input
-                                    type="checkbox"
-                                    checked={selectedIds.includes(option.id)}
-                                    onChange={() => handleCheckboxChange(option.id)}
-                                    className="text-[#00BFFF] focus:ring-[#00BFFF]"
-                                />
-                                <span className="text-gray-700">{option.name}</span>
-                            </label>
-                        ))
-                    )}
+
+                    {/* Scrollable Options */}
+                    <div className="max-h-52 overflow-y-auto">
+                        {filteredOptions.length === 0 ? (
+                            <p className="text-gray-500 text-sm p-2">No results found for "{searchTerm}".</p>
+                        ) : (
+                            filteredOptions.map((option) => ( // Use filteredOptions here
+                                <label key={option.id} className="flex items-center space-x-2 py-1 px-2 cursor-pointer hover:bg-gray-50">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedIds.includes(option.id)}
+                                        onChange={() => handleCheckboxChange(option.id)}
+                                        className="text-[#00BFFF] focus:ring-[#00BFFF]"
+                                    />
+                                    <span className="text-gray-700">{option.name}</span>
+                                </label>
+                            ))
+                        )}
+                    </div>
                 </div>
             )}
         </div>

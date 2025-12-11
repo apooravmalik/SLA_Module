@@ -1,8 +1,8 @@
-// client/src/components/ReportPage.jsx (PAGINATION IMPLEMENTATION)
+// client/src/components/ReportPage.jsx (PAGINATION AND SORTING IMPLEMENTATION)
 /* eslint-disable no-unused-vars */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'; // Added useMemo
 import Navbar from './Navbar'; 
-import { FaDownload, FaArrowLeft, FaSpinner } from 'react-icons/fa';
+import { FaDownload, FaArrowLeft, FaSpinner, FaSortUp, FaSortDown } from 'react-icons/fa'; // ADDED FaSortUp, FaSortDown
 import { sub } from 'date-fns';
 
 // ------------------------------------------------------------------
@@ -19,6 +19,7 @@ const reportColumns = [
     { header: 'Zone', key: 'ZoneName' },
     { header: 'Street', key: 'StreetName' },
     { header: 'Unit', key: 'UnitName' },
+    { header: 'Status', key: 'Status', width: '100px' }, // Status is now included
     { header: 'Offline Time', key: 'OfflineTime', width: '180px' },
     { header: 'Online Time', key: 'OnlineTime', width: '180px' },
     { header: 'Offline Minutes', key: 'OfflineMinutes' },
@@ -55,7 +56,7 @@ const formatErrorMessage = (errorData) => {
 // ------------------------------------------------------------------
 // Table Component (In-line rendering with forwardRef for scroll access)
 // ------------------------------------------------------------------
-const TableContent = React.forwardRef(({ data, columns }, ref) => {
+const TableContent = React.forwardRef(({ data, columns, sortConfig, onSort }, ref) => {
     if (!data || data.length === 0) {
         return <p className="text-gray-500 p-4">No report data found for the current filters.</p>;
     }
@@ -66,6 +67,14 @@ const TableContent = React.forwardRef(({ data, columns }, ref) => {
         width: col.width || 'auto' 
     }));
     
+    // Helper to render sort icon
+    const getSortIcon = (key) => {
+        if (sortConfig.key !== key) return null;
+        return sortConfig.direction === 'ascending' 
+            ? <FaSortUp className="w-3 h-3 ml-1" /> 
+            : <FaSortDown className="w-3 h-3 ml-1" />;
+    };
+
     return (
         <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
             {/* Scrollable container for infinite loading */}
@@ -74,8 +83,17 @@ const TableContent = React.forwardRef(({ data, columns }, ref) => {
                     <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 z-10">
                         <tr>
                             {columnHeaders.map(col => (
-                                <th key={col.key} scope="col" className="px-6 py-3" style={{ minWidth: col.width }}>
-                                    {col.header}
+                                <th 
+                                    key={col.key} 
+                                    scope="col" 
+                                    className="px-6 py-3 cursor-pointer hover:bg-gray-100 transition-colors"
+                                    style={{ minWidth: col.width }}
+                                    onClick={() => onSort(col.key)} // Handle sorting on click
+                                >
+                                    <div className="flex items-center">
+                                        {col.header}
+                                        {getSortIcon(col.key)}
+                                    </div>
                                 </th>
                             ))}
                         </tr>
@@ -89,7 +107,7 @@ const TableContent = React.forwardRef(({ data, columns }, ref) => {
                                     
                                     if (col.key === 'PenaltyAmount' && cellValue !== 'N/A') {
                                         displayValue = `₹ ${parseFloat(cellValue).toFixed(2)}`;
-                                    } else if (col.key.endsWith('Time') && cellValue !== 'N/A') {
+                                    } else if ((col.key.endsWith('Time') || col.key.endsWith('DTM')) && cellValue !== 'N/A') {
                                         try {
                                             displayValue = new Date(cellValue).toLocaleString();
                                         } catch (e) {
@@ -113,7 +131,7 @@ const TableContent = React.forwardRef(({ data, columns }, ref) => {
 });
 
 
-const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATED PROP: reportContext
+const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { 
     // State to hold the filters currently applied to the report data
     const [appliedFilters, setAppliedFilters] = useState({});
     const [reportData, setReportData] = useState([]);
@@ -122,14 +140,17 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATE
     // Pagination State
     const [skip, setSkip] = useState(0); 
     const [hasMore, setHasMore] = useState(true);
+
+    // SORTING State: Default to sorting by IncidentLog_PRK descending, which is typical for reports.
+    const [sortConfig, setSortConfig] = useState({ key: 'IncidentLog_PRK', direction: 'descending' }); 
     
     // Loading States
-    const [loadingInitial, setLoadingInitial] = useState(false); // For first load
-    const [loadingMore, setLoadingMore] = useState(false);     // For subsequent pages
+    const [loadingInitial, setLoadingInitial] = useState(false); 
+    const [loadingMore, setLoadingMore] = useState(false);     
     const [globalError, setGlobalError] = useState(null);
-    const [activeTimeline, setActiveTimeline] = useState('month'); // Default is now 'month'
+    const [activeTimeline, setActiveTimeline] = useState('month'); 
     const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
-    const [isDownloading, setIsDownloading] = useState(false); // NEW STATE for download status
+    const [isDownloading, setIsDownloading] = useState(false); 
     
     // Ref to the scrollable table container
     const scrollContainerRef = useRef(null);
@@ -139,7 +160,6 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATE
         const params = new URLSearchParams();
 
         Object.entries(currentFilters).forEach(([key, value]) => {
-            // Exclude skip/limit fields from filters object 
             if (value === null || value === undefined || value === "" || key === 'skip' || key === 'limit') return;
 
             if (Array.isArray(value)) {
@@ -157,9 +177,7 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATE
         if (!isDownload) {
              params.append('skip', currentSkip);
              params.append('limit', PAGE_LIMIT);
-        } else {
-             // For downloads, rely on the backend's explicit high limit (500000)
-        }
+        } // No need for else: download relies on backend's high limit
 
         return params.toString();
     }, []); 
@@ -179,9 +197,8 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATE
             startDate = sub(now, { months: 1 });
         }
 
-        // Return dates as ISO strings (which the backend will convert to datetime objects)
         return {
-            date_from: startDate ? startDate.toISOString().split('T')[0] : '', // Keep only date part
+            date_from: startDate ? startDate.toISOString().split('T')[0] : '', 
             date_to: now.toISOString().split('T')[0],
         };
     }, []);
@@ -198,6 +215,7 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATE
         setReportData([]);
         setSkip(0);
         setHasMore(true);
+        // Do NOT reset sorting state here.
 
         setAppliedFilters(prev => ({ 
             ...prev, 
@@ -210,15 +228,12 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATE
     
     
     // --- Data Fetching (PAGINATED) ---
-    // isNewFilter = true for initial load or filter change, false for infinite scroll
     const fetchReportData = useCallback(async (currentFilters, currentSkip, isNewFilter = true) => {
         
         if (!hasMore && !isNewFilter) return; 
         
         if (isNewFilter) {
             setLoadingInitial(true);
-            // Don't clear reportData here if it's the first fetch from context, 
-            // the context logic ensures initialFilters are set correctly.
         } else {
             setLoadingMore(true);
         }
@@ -257,11 +272,9 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATE
                 
                 setTotalRows(data.total_rows || 0);
 
-                // Check for 'hasMore': if we fetched less than the limit, we're at the end.
                 const fetchedCount = data.data ? data.data.length : 0;
                 setHasMore(fetchedCount === PAGE_LIMIT);
                 
-                // Update skip for the *next* request
                 if (fetchedCount > 0) {
                     setSkip(currentSkip + fetchedCount);
                 }
@@ -281,7 +294,7 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATE
     }, [hasMore, filtersToQueryString]); 
 
     
-    // NEW: Handler for the 'Go' button click from Navbar
+    // Handler for the 'Go' button click from Navbar
     const handleApplyFilters = useCallback((newFilters) => {
         // Reset pagination when a new filter is applied manually
         setReportData([]);
@@ -291,11 +304,9 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATE
         // The newFilters contains the filter values from the Navbar state
         setAppliedFilters(newFilters);
         
-        // Check if date filters are empty to correctly set the timeline view
         const isDateFilterApplied = newFilters.date_from || newFilters.date_to;
         setActiveTimeline(isDateFilterApplied ? '' : 'month');
         
-        // Trigger the fetch with the new filters
         fetchReportData(newFilters, 0, true);
     }, [fetchReportData]);
 
@@ -305,14 +316,10 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATE
         let initialTimeline = 'month';
 
         if (reportContext) {
-            // --- Logic for KPI Card Click Context ---
             if (reportContext.type === 'static') {
-                // Static KPI clicked: show ALL records (empty filters)
                 initialFilters = {};
                 initialTimeline = 'month';
-                
             } else if (reportContext.type === 'dynamic') {
-                // Dynamic KPI clicked: use the filters that were active on the Dashboard
                 initialFilters = {
                     zone_id: reportContext.filters?.zone_id || [], 
                     street_id: reportContext.filters?.street_id || [], 
@@ -321,25 +328,21 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATE
                     date_to: reportContext.filters?.date_to || ''
                 };
                 
-                // If the dashboard filters included an explicit date range, set timeline to 'Custom'
                 if (initialFilters.date_from || initialFilters.date_to) {
                     initialTimeline = '';
                 } else {
-                    // Otherwise, rely on the backend default date, set view to 'month'
                     initialTimeline = 'month';
                 }
             }
             
-            // Apply initial state from context
             setAppliedFilters(initialFilters);
             setActiveTimeline(initialTimeline); 
             fetchReportData(initialFilters, 0, true);
             
         } else if (Object.keys(appliedFilters).length === 0) { 
-            // Original logic for direct navigation (e.g., from a fresh login without context)
             handleTimelineChange('month'); 
         }
-    }, [reportContext, fetchReportData, handleTimelineChange]); // Depend on reportContext
+    }, [reportContext, fetchReportData, handleTimelineChange]); 
 
 
     // --- Infinite Scroll Handler ---
@@ -347,7 +350,6 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATE
         const element = scrollContainerRef.current;
         
         if (element && hasMore && !loadingInitial && !loadingMore) {
-            // Check if user has scrolled near the bottom (e.g., within 100px of the end)
             const isNearBottom = element.scrollHeight - element.scrollTop <= element.clientHeight + 100;
 
             if (isNearBottom) {
@@ -367,10 +369,56 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATE
         }
     }, [handleScroll]);
 
+
+    // --- SORTING LOGIC ---
+    const sortedData = useMemo(() => {
+        if (!reportData || sortConfig.key === null) return reportData;
+
+        // Create a copy of the data to sort
+        const sortableItems = [...reportData];
+
+        sortableItems.sort((a, b) => {
+            const aValue = a[sortConfig.key] || '';
+            const bValue = b[sortConfig.key] || '';
+
+            // Handle numeric and date columns (assuming they are numbers or parseable dates)
+            if (typeof aValue === 'number' || (sortConfig.key.includes('PRK') || sortConfig.key.includes('Minutes'))) {
+                 // Convert to float for accurate numeric comparison
+                const valA = parseFloat(aValue);
+                const valB = parseFloat(bValue);
+                if (valA < valB) return sortConfig.direction === 'ascending' ? -1 : 1;
+                if (valA > valB) return sortConfig.direction === 'ascending' ? 1 : -1;
+            } 
+            
+            // Handle alphabetical (string) columns (including ZoneName, StreetName, Status)
+            else {
+                // Perform a case-insensitive string comparison
+                const strA = String(aValue).toLowerCase();
+                const strB = String(bValue).toLowerCase();
+
+                if (strA < strB) return sortConfig.direction === 'ascending' ? -1 : 1;
+                if (strA > strB) return sortConfig.direction === 'ascending' ? 1 : -1;
+            }
+            
+            return 0;
+        });
+
+        return sortableItems;
+    }, [reportData, sortConfig]);
+
+    const handleSort = (key) => {
+        let direction = 'ascending';
+        if (sortConfig.key === key) {
+            direction = sortConfig.direction === 'ascending' ? 'descending' : 'ascending';
+        }
+        setSortConfig({ key, direction });
+    };
+    // --- END SORTING LOGIC ---
+
     // --- Download Logic (Excludes pagination parameters) ---
     const handleDownload = async (format) => {
         setDownloadDropdownOpen(false);
-        setIsDownloading(true); // Set downloading state
+        setIsDownloading(true); 
         
         const token = localStorage.getItem('token');
         if (!token) {
@@ -378,7 +426,6 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATE
             return setGlobalError("Authentication required. Please log in.");
         }
         
-        // Pass 'true' for isDownload to exclude skip/limit
         const queryString = filtersToQueryString(appliedFilters, 0, true); 
         const downloadUrl = `${DOWNLOAD_URL}?${queryString}`;
 
@@ -414,7 +461,7 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATE
             setGlobalError('Network error during file download.');
             console.error('Download error:', error);
         } finally {
-            setIsDownloading(false); // Clear downloading state
+            setIsDownloading(false); 
         }
     };
     
@@ -520,15 +567,18 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => { // UPDATE
                     </div>
                 ) : (
                     <>
-                        <TableContent data={reportData} columns={reportColumns} ref={scrollContainerRef} />
+                        <TableContent 
+                            data={sortedData} 
+                            columns={reportColumns} 
+                            ref={scrollContainerRef} 
+                            sortConfig={sortConfig} 
+                            onSort={handleSort} // Pass sort handler
+                        />
                         
                         {/* Infinite Scroll Loading Indicator */}
                         {loadingMore && (
                             <div className="text-center py-4 text-[#00BFFF]">
-                                <svg className="animate-spin h-6 w-6 text-[#00BFFF] inline-block mr-2" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
+                                <FaSpinner className="animate-spin h-6 w-6 inline-block mr-2" />
                                 Loading more data...
                             </div>
                         )}

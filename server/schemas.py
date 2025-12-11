@@ -100,6 +100,7 @@ class ReportRow(BaseModel):
     OfflineTime: Optional[datetime] = None
     OnlineTime: Optional[datetime] = None
     OfflineMinutes: Optional[int] = None
+    Status: Optional[str] = None
     PenaltyAmount: Decimal = Field(..., description="Penalty amount calculated for downtime.")
 
 class ReportResponse(BaseModel):

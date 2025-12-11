@@ -15,28 +15,40 @@ router = APIRouter(
     tags=["Report Data"]
 )
 
-@router.get("/", response_model=ReportResponse, status_code=status.HTTP_200_OK)
+@router.get("/", response_model=ReportResponse)
 def get_report_data(
     db: Session = Depends(get_db),
-    
-    # Use the same filters as the dashboard
-    zone_id: Optional[List[int]] = Query(None),
-    street_id: Optional[List[int]] = Query(None),
-    unit_id: Optional[List[int]] = Query(None),
+    zone_id: Optional[List[str]] = Query(None),
+    street_id: Optional[List[str]] = Query(None),
+    unit_id: Optional[List[str]] = Query(None),
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
-    skip: int = Query(0, ge=0, description="The number of records to skip for pagination."),
-    limit: int = Query(500, ge=1, le=1000, description="The maximum number of records to return (page size)."),
+    skip: int = Query(0),
+    limit: int = Query(500),
 ):
-    """Retrieves detailed device downtime and penalty data for the report table."""
-    
+    def to_int_list(values: Optional[List[str]]):
+        if not values:
+            return None
+        cleaned = []
+        for v in values:
+            try:
+                cleaned.append(int(v))
+            except (TypeError, ValueError):
+                pass
+        return cleaned or None
+
     filters = DashboardFilters(
-        zone_id=zone_id, street_id=street_id, unit_id=unit_id,
-        date_from=date_from, date_to=date_to,
-        skip=skip, limit=limit, 
+        zone_id=to_int_list(zone_id),
+        street_id=to_int_list(street_id),
+        unit_id=to_int_list(unit_id),
+        date_from=date_from,
+        date_to=date_to,
+        skip=skip,
+        limit=limit,
     )
-    
+
     return report_data_service.get_detailed_report(db, filters)
+
 
 def convert_report_to_csv(report_data: List[ReportRow]) -> io.StringIO:
     """Converts a list of ReportRow Pydantic models to a CSV format string."""
