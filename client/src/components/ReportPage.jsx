@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Navbar from './Navbar'; 
 import { FaDownload, FaArrowLeft, FaSpinner, FaSortUp, FaSortDown } from 'react-icons/fa'; // ADDED FaSortUp, FaSortDown
 import { sub } from 'date-fns';
+import MultiSelectDropdown from './MultiSelectDropdown'; // NEW IMPORT
 
 // ------------------------------------------------------------------
 // Base Configuration
@@ -11,6 +12,8 @@ import { sub } from 'date-fns';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'; 
 const REPORT_URL = `${API_BASE_URL}/report/`;
 const DOWNLOAD_URL = `${API_BASE_URL}/report/download`;
+const CACHE_URL = `${API_BASE_URL}/cache/`; // NEW CACHE API URL
+const INCIDENT_SUBCATEGORIES_URL = `${API_BASE_URL}/report/incident_sub_categories`; // NEW API URL
 const PAGE_LIMIT = 500; // Define the fixed page size
 
 const reportColumns = [
@@ -19,7 +22,8 @@ const reportColumns = [
     { header: 'Zone', key: 'ZoneName' },
     { header: 'Street', key: 'StreetName' },
     { header: 'Unit', key: 'UnitName' },
-    { header: 'Status', key: 'Status', width: '100px' }, // Status is now included
+    { header: 'Incident Log PRK', key: 'IncidentLog_PRK', width: '150px' }, // NEWLY ADDED
+    { header: 'Category', key: 'WaiverCategory', width: '150px', isCustom: true }, // NEWLY ADDED for waiver dropdown
     { header: 'Offline Time', key: 'OfflineTime', width: '180px' },
     { header: 'Online Time', key: 'OnlineTime', width: '180px' },
     { header: 'Offline Minutes', key: 'OfflineMinutes' },
@@ -56,7 +60,7 @@ const formatErrorMessage = (errorData) => {
 // ------------------------------------------------------------------
 // Table Component (In-line rendering with forwardRef for scroll access)
 // ------------------------------------------------------------------
-const TableContent = React.forwardRef(({ data, columns, sortConfig, onSort }, ref) => {
+const TableContent = React.forwardRef(({ data, columns, sortConfig, onSort, incidentSubCategories, onWaivePenalty, selectedWaiverCategories, onWaiverCategoryChange }, ref) => {
     if (!data || data.length === 0) {
         return <p className="text-gray-500 p-4">No report data found for the current filters.</p>;
     }
@@ -64,7 +68,8 @@ const TableContent = React.forwardRef(({ data, columns, sortConfig, onSort }, re
     const columnHeaders = columns.map(col => ({ 
         key: col.key, 
         header: col.header, 
-        width: col.width || 'auto' 
+        width: col.width || 'auto',
+        isCustom: col.isCustom || false
     }));
     
     // Helper to render sort icon
@@ -99,30 +104,59 @@ const TableContent = React.forwardRef(({ data, columns, sortConfig, onSort }, re
                         </tr>
                     </thead>
                     <tbody>
-                        {data.map((row, rowIndex) => (
-                            <tr key={rowIndex} className="bg-white border-b hover:bg-gray-50">
-                                {columnHeaders.map(col => {
-                                    const cellValue = row[col.key] !== null && row[col.key] !== undefined ? row[col.key] : 'N/A';
-                                    let displayValue = cellValue.toString();
-                                    
-                                    if (col.key === 'PenaltyAmount' && cellValue !== 'N/A') {
-                                        displayValue = `₹ ${parseFloat(cellValue).toFixed(2)}`;
-                                    } else if ((col.key.endsWith('Time') || col.key.endsWith('DTM')) && cellValue !== 'N/A') {
-                                        try {
-                                            displayValue = new Date(cellValue).toLocaleString();
-                                        } catch (e) {
-                                            displayValue = cellValue;
+                        {data.map((row, rowIndex) => {
+                            // Determine current selected subcategory for this IncidentLog_PRK
+                            const currentSelectedSubcategory = selectedWaiverCategories[row.IncidentLog_PRK] || [];
+                            
+                            return (
+                                <tr key={rowIndex} className="bg-white border-b hover:bg-gray-50">
+                                    {columnHeaders.map(col => {
+                                        if (col.isCustom && col.key === 'WaiverCategory') {
+                                            return (
+                                                <td key={col.key} className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">
+                                                    <div className="flex items-center space-x-2">
+                                                        <MultiSelectDropdown
+                                                            name={`waiver_category_${row.IncidentLog_PRK}`}
+                                                            label="Select Category"
+                                                            options={incidentSubCategories}
+                                                            selectedIds={currentSelectedSubcategory}
+                                                            onChange={(e) => onWaiverCategoryChange(row.IncidentLog_PRK, e.value)}
+                                                            isSingleSelect={true} // Set to true for single selection
+                                                            onGoClick={(subcategoryId) => onWaivePenalty(row.IncidentLog_PRK, subcategoryId)} // Pass the Go handler
+                                                            // Disable if penalty is already 0, or if no IncidentLog_PRK
+                                                            disabled={row.PenaltyAmount === 0 || !row.IncidentLog_PRK}
+                                                        />
+                                                        {/* The Go button is now inside the dropdown */}
+                                                    </div>
+                                                </td>
+                                            );
                                         }
-                                    }
-                                    
-                                    return (
-                                        <td key={col.key} className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">
-                                            {displayValue}
-                                        </td>
-                                    );
-                                })}
-                            </tr>
-                        ))}
+
+                                        const cellValue = row[col.key] !== null && row[col.key] !== undefined ? row[col.key] : 'N/A';
+                                        let displayValue = cellValue.toString();
+                                        
+                                        if (col.key === 'PenaltyAmount' && cellValue !== 'N/A') {
+                                            displayValue = `₹ ${parseFloat(cellValue).toFixed(2)}`;
+                                        } else if ((col.key.endsWith('Time') || col.key.endsWith('DTM')) && cellValue !== 'N/A') {
+                                            try {
+                                                displayValue = new Date(cellValue).toLocaleString();
+                                            } catch (e) {
+                                                displayValue = cellValue;
+                                            }
+                                        } else if (col.key === 'WaiverCategory' && row.WaiverCategory !== null && row.WaiverCategory !== undefined) {
+                                            // If WaiverCategory is present, display it
+                                            displayValue = incidentSubCategories.find(cat => cat.id === row.WaiverCategory)?.name || row.WaiverCategory; 
+                                        }
+                                        
+                                        return (
+                                            <td key={col.key} className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">
+                                                {displayValue}
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
@@ -137,6 +171,11 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => {
     const [reportData, setReportData] = useState([]);
     const [totalRows, setTotalRows] = useState(0);
     
+    // NEW STATE for Incident Subcategories and selected waivers
+    const [incidentSubCategories, setIncidentSubCategories] = useState([]);
+    // Stores selected subcategory ID for each IncidentLog_PRK as a single integer, or null if none
+    const [selectedWaiverCategories, setSelectedWaiverCategories] = useState({}); // {incidentLog_PRK: subcategoryId}
+
     // Pagination State
     const [skip, setSkip] = useState(0); 
     const [hasMore, setHasMore] = useState(true);
@@ -151,9 +190,42 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => {
     const [activeTimeline, setActiveTimeline] = useState('month'); 
     const [downloadDropdownOpen, setDownloadDropdownOpen] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false); 
+    const [isRefreshingCache, setIsRefreshingCache] = useState(false); // NEW STATE
     
     // Ref to the scrollable table container
     const scrollContainerRef = useRef(null);
+
+    // NEW: Fetch Incident Subcategories on component mount
+    useEffect(() => {
+        const fetchIncidentSubCategories = async () => {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                setGlobalError("Authentication required to fetch waiver categories.");
+                return;
+            }
+            try {
+                const response = await fetch(INCIDENT_SUBCATEGORIES_URL, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                    },
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    // Ensure options have 'id' and 'name' properties
+                    setIncidentSubCategories(data.map(item => ({ id: item.id, name: item.name })));
+                } else {
+                    const errorData = await response.json().catch(() => ({}));
+                    setGlobalError(formatErrorMessage(errorData) || 'Failed to fetch incident subcategories.');
+                }
+            } catch (error) {
+                setGlobalError('Network error while fetching incident subcategories.');
+                console.error('Incident subcategories fetch error:', error);
+            }
+        };
+        fetchIncidentSubCategories();
+    }, []); // Run once on mount
 
     // Helper to convert filters (including date/pagination) to query string
     const filtersToQueryString = useCallback((currentFilters, currentSkip, isDownload = false) => {
@@ -182,51 +254,6 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => {
         return params.toString();
     }, []); 
 
-    // --- Date Filtering Logic (Remains the same) ---
-    const calculateDateRange = useCallback((timeline) => {
-        const now = new Date();
-        let startDate;
-
-        if (timeline === 'day') {
-            startDate = sub(now, { hours: 24 });
-        } 
-        else if (timeline === 'week') {
-            startDate = sub(now, { weeks: 1 });
-        } 
-        else if (timeline === 'month') {
-            startDate = sub(now, { months: 1 });
-        }
-
-        return {
-            date_from: startDate ? startDate.toISOString().split('T')[0] : '', 
-            date_to: now.toISOString().split('T')[0],
-        };
-    }, []);
-
-    const handleTimelineChange = useCallback((timeline) => {
-        setActiveTimeline(timeline);
-
-        let newDateFilters = {};
-        if (timeline !== "" && timeline !== null) {
-            newDateFilters = calculateDateRange(timeline);
-        }
-
-        // Reset data and pagination state whenever filters change (new query)
-        setReportData([]);
-        setSkip(0);
-        setHasMore(true);
-        // Do NOT reset sorting state here.
-
-        setAppliedFilters(prev => ({ 
-            ...prev, 
-            ...newDateFilters, 
-            date_from: newDateFilters.date_from || '',
-            date_to: newDateFilters.date_to || ''
-        }));
-        // The main useEffect will trigger the fetch due to appliedFilters change
-    }, [calculateDateRange]);
-    
-    
     // --- Data Fetching (PAGINATED) ---
     const fetchReportData = useCallback(async (currentFilters, currentSkip, isNewFilter = true) => {
         
@@ -293,7 +320,150 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => {
         }
     }, [hasMore, filtersToQueryString]); 
 
-    
+    // --- Date Filtering Logic (Remains the same) ---
+    const calculateDateRange = useCallback((timeline) => {
+        const now = new Date();
+        let startDate;
+
+        if (timeline === 'day') {
+            startDate = sub(now, { hours: 24 });
+        } 
+        else if (timeline === 'week') {
+            startDate = sub(now, { weeks: 1 });
+        } 
+        else if (timeline === 'month') {
+            startDate = sub(now, { months: 1 });
+        }
+
+        return {
+            date_from: startDate ? startDate.toISOString().split('T')[0] : '', 
+            date_to: now.toISOString().split('T')[0],
+        };
+    }, []);
+
+    const handleTimelineChange = useCallback((timeline) => {
+        setActiveTimeline(timeline);
+
+        let newDateFilters = {};
+        if (timeline !== "" && timeline !== null) {
+            newDateFilters = calculateDateRange(timeline);
+        }
+
+        // Reset data and pagination state whenever filters change (new query)
+        setReportData([]);
+        setSkip(0);
+        setHasMore(true);
+        // Do NOT reset sorting state here.
+
+        setAppliedFilters(prev => ({
+            ...prev,
+            ...newDateFilters,
+            date_from: newDateFilters.date_from || '',
+            date_to: newDateFilters.date_to || ''
+        }));
+        // The main useEffect will trigger the fetch due to appliedFilters change
+    }, [calculateDateRange]); // Removed fetchReportData - it's not directly used, only triggered via appliedFilters change
+
+    // NEW: Handler for waiver category change in dropdown
+    const handleWaiverCategoryChange = useCallback((incidentLogPrk, selectedId) => {
+        setSelectedWaiverCategories(prev => ({
+            ...prev,
+            [incidentLogPrk]: selectedId // Store a single selected ID
+        }));
+    }, []);
+
+    // NEW: Handler for 'Go' button click (waive penalty)
+    const handleWaivePenalty = useCallback(async (incidentLogPrk, subcategoryId) => {
+        if (!incidentLogPrk || !subcategoryId) {
+            setGlobalError("Incident Log PRK and Subcategory are required for waiver.");
+            return;
+        }
+
+        const token = localStorage.getItem('token');
+        if (!token) {
+            setGlobalError("Authentication required. Please log in.");
+            return;
+        }
+
+        setLoadingInitial(true); // Indicate a major data change/refresh
+        setGlobalError(null);
+
+        try {
+            const response = await fetch(`${CACHE_URL}waive_penalty`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    date_from: appliedFilters.date_from,
+                    date_to: appliedFilters.date_to,
+                    incident_log_prk: incidentLogPrk,
+                    subcategory_id: subcategoryId,
+                }),
+            });
+
+            if (response.ok) {
+                // If waiver successful, refresh the report data to show the updated penalty
+                // Reset skip to 0 to fetch from the beginning
+                setReportData([]);
+                setSkip(0);
+                setHasMore(true);
+                fetchReportData(appliedFilters, 0, true); 
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                setGlobalError(formatErrorMessage(errorData) || 'Failed to waive penalty.');
+            }
+        } catch (error) {
+            setGlobalError('Network error while waiving penalty.');
+            console.error('Waive penalty error:', error);
+        } finally {
+            setLoadingInitial(false);
+        }
+    }, [appliedFilters, fetchReportData]);
+
+    // NEW: Handler for 'Refresh Cache' button click
+    const handleRefreshCache = useCallback(async () => {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            setGlobalError("Authentication required to refresh cache.");
+            return;
+        }
+
+        setIsRefreshingCache(true);
+        setGlobalError(null);
+
+        try {
+            const response = await fetch(`${CACHE_URL}refresh_cache`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    date_from: appliedFilters.date_from,
+                    date_to: appliedFilters.date_to,
+                }),
+            });
+
+            if (response.ok) {
+                // Cache refreshed, now re-fetch report data
+                setReportData([]);
+                setSkip(0);
+                setHasMore(true);
+                fetchReportData(appliedFilters, 0, true); 
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                setGlobalError(formatErrorMessage(errorData) || 'Failed to refresh cache.');
+            }
+        } catch (error) {
+            setGlobalError('Network error while refreshing cache.');
+            console.error('Refresh cache error:', error);
+        } finally {
+            setIsRefreshingCache(false);
+        }
+    }, [appliedFilters, fetchReportData]);
+
     // Handler for the 'Go' button click from Navbar
     const handleApplyFilters = useCallback((newFilters) => {
         // Reset pagination when a new filter is applied manually
@@ -308,10 +478,19 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => {
         setActiveTimeline(isDateFilterApplied ? '' : 'month');
         
         fetchReportData(newFilters, 0, true);
-    }, [fetchReportData]);
+    }, [fetchReportData, appliedFilters]); // Added appliedFilters to dependencies
+
+    // Track if initial load has been done to prevent infinite loops
+    const hasInitializedRef = useRef(false);
+    const prevAppliedFiltersRef = useRef(null); // Track previous filters to detect actual changes
 
     // Initial load and Filter Synchronization Logic (MODIFIED)
     useEffect(() => {
+        // Only run when reportContext changes or on initial mount
+        if (hasInitializedRef.current && !reportContext) {
+            return; // Skip if already initialized and no reportContext
+        }
+
         let initialFilters = {};
         let initialTimeline = 'month';
 
@@ -336,13 +515,34 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => {
             }
             
             setAppliedFilters(initialFilters);
-            setActiveTimeline(initialTimeline); 
-            fetchReportData(initialFilters, 0, true);
+            setActiveTimeline(initialTimeline);
+            prevAppliedFiltersRef.current = JSON.stringify(initialFilters);
+            hasInitializedRef.current = true;
             
-        } else if (Object.keys(appliedFilters).length === 0) { 
-            handleTimelineChange('month'); 
+        } else if (!hasInitializedRef.current) { 
+            // Only initialize with default timeline if not already initialized
+            handleTimelineChange('month');
+            hasInitializedRef.current = true;
         }
-    }, [reportContext, fetchReportData, handleTimelineChange]); 
+    }, [reportContext, handleTimelineChange]); // Depend on reportContext and handleTimelineChange
+
+    // Separate useEffect to handle fetching when appliedFilters actually changes
+    useEffect(() => {
+        const filtersKey = JSON.stringify(appliedFilters);
+        // Only fetch if filters have actually changed (not just a reference update)
+        if (prevAppliedFiltersRef.current !== filtersKey && Object.keys(appliedFilters).length >= 0) {
+            prevAppliedFiltersRef.current = filtersKey;
+            // Reset pagination state
+            setReportData([]);
+            setSkip(0);
+            setHasMore(true);
+            // Fetch with the new filters
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            fetchReportData(appliedFilters, 0, true);
+        }
+        // Note: We intentionally don't include fetchReportData in deps to avoid infinite loops
+        // fetchReportData reads from current state via closures, so it will work correctly
+    }, [appliedFilters]); // Only depend on appliedFilters to avoid infinite loops 
 
 
     // --- Infinite Scroll Handler ---
@@ -513,6 +713,22 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => {
                     ))}
                 </select>
                 
+                {/* Refresh Cache Button - NEW */}
+                <button 
+                    onClick={handleRefreshCache}
+                    className="py-2 px-4 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center space-x-2 transition duration-150"
+                    disabled={isRefreshingCache || loadingInitial}
+                >
+                    {isRefreshingCache ? (
+                        <>
+                            <FaSpinner className="animate-spin" />
+                            <span>Refreshing Cache...</span>
+                        </>
+                    ) : (
+                        <span>Refresh Cache</span>
+                    )}
+                </button>
+
                 {/* Download Dropdown */}
                 <div className="relative">
                     <button 
@@ -573,6 +789,10 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => {
                             ref={scrollContainerRef} 
                             sortConfig={sortConfig} 
                             onSort={handleSort} // Pass sort handler
+                            incidentSubCategories={incidentSubCategories} // NEW PROP
+                            selectedWaiverCategories={selectedWaiverCategories} // NEW PROP
+                            onWaiverCategoryChange={handleWaiverCategoryChange} // NEW PROP
+                            onWaivePenalty={handleWaivePenalty} // NEW PROP
                         />
                         
                         {/* Infinite Scroll Loading Indicator */}

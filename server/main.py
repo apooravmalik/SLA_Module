@@ -1,7 +1,7 @@
 # main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import auth_routes, dashboard_routes, master_data_routes, report_routes
+from routers import auth_routes, dashboard_routes, master_data_routes, report_routes, cache_routes
 from database import Base, engine 
 from config.config import settings
 
@@ -31,6 +31,7 @@ app.include_router(auth_routes.router)
 app.include_router(dashboard_routes.router)
 app.include_router(master_data_routes.router)
 app.include_router(report_routes.router)
+app.include_router(cache_routes.router)
 
 @app.get("/")
 def read_root():

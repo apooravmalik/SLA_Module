@@ -102,11 +102,20 @@ class ReportRow(BaseModel):
     OfflineMinutes: Optional[int] = None
     Status: Optional[str] = None
     PenaltyAmount: Decimal = Field(..., description="Penalty amount calculated for downtime.")
+    IncidentLog_PRK: Optional[int] = None
+    WaiverCategory: Optional[str] = None
 
 class ReportResponse(BaseModel):
     total_rows: int
     data: list[ReportRow]
     
+# NEWLY ADDED: Schema for Penalty Waiver Request
+class PenaltyWaiverRequest(BaseModel):
+    date_from: datetime
+    date_to: datetime
+    incident_log_prk: int
+    subcategory_id: int
+
 class IncidentDetail(BaseModel):
     IncidentLog_PRK: int
     inlIncidentDetails_MEM: Optional[str] = None

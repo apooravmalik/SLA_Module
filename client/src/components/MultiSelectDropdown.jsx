@@ -1,10 +1,10 @@
 // src/components/MultiSelectDropdown.jsx
-import React, { useState, useEffect, useRef, useMemo } from 'react'; // Added useMemo
-import { FaChevronDown, FaSearch } from 'react-icons/fa'; // Added FaSearch icon
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { FaChevronDown, FaSearch } from 'react-icons/fa';
 
-const MultiSelectDropdown = ({ name, label, options, selectedIds, onChange, disabled = false }) => {
+const MultiSelectDropdown = ({ name, label, options, selectedIds, onChange, disabled = false, isSingleSelect = false, onGoClick }) => {
     const [isOpen, setIsOpen] = useState(false);
-    const [searchTerm, setSearchTerm] = useState(''); // NEW STATE for search input
+    const [searchTerm, setSearchTerm] = useState('');
     const dropdownRef = useRef(null);
 
     // Close dropdown when clicking outside and clear search
@@ -19,7 +19,9 @@ const MultiSelectDropdown = ({ name, label, options, selectedIds, onChange, disa
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    // Memoize the filtered options for performance
+    // Derived state for single selection (always derive from selectedIds)
+    const currentSingleSelectionId = isSingleSelect && selectedIds.length === 1 ? selectedIds[0] : null;
+
     const filteredOptions = useMemo(() => {
         if (!searchTerm) {
             return options;
@@ -34,14 +36,27 @@ const MultiSelectDropdown = ({ name, label, options, selectedIds, onChange, disa
         const idInt = parseInt(id, 10);
         let newSelectedIds;
 
-        if (selectedIds.includes(idInt)) {
-            newSelectedIds = selectedIds.filter(prevId => prevId !== idInt);
+        if (isSingleSelect) {
+            // For single select, determine the new single selection and call onChange
+            const newSelection = idInt === currentSingleSelectionId ? null : idInt;
+            onChange({ name, value: newSelection === null ? [] : [newSelection] });
         } else {
-            newSelectedIds = [...selectedIds, idInt];
+            // Existing multi-select logic
+            if (selectedIds.includes(idInt)) {
+                newSelectedIds = selectedIds.filter(prevId => prevId !== idInt);
+            } else {
+                newSelectedIds = [...selectedIds, idInt];
+            }
+            onChange({ name, value: newSelectedIds });
         }
+    };
 
-        // Notify parent component with the updated list of IDs
-        onChange({ name, value: newSelectedIds });
+    const handleGoClickInternal = () => {
+        if (isSingleSelect && currentSingleSelectionId !== null && onGoClick) {
+            onGoClick(currentSingleSelectionId);
+            setIsOpen(false); // Close dropdown after action
+            setSearchTerm(''); // Clear search
+        }
     };
 
     const selectedCount = selectedIds.length;
@@ -54,6 +69,8 @@ const MultiSelectDropdown = ({ name, label, options, selectedIds, onChange, disa
     const isAllUnfilteredSelected = selectedCount === options.length && options.length > 0;
 
     const toggleAll = () => {
+        if (isSingleSelect) return; // 'Select All' not applicable for single select
+
         if (isAllSelected) {
             // Unselect all currently FILTERED items
             const idsToKeep = selectedIds.filter(id => 
@@ -68,6 +85,21 @@ const MultiSelectDropdown = ({ name, label, options, selectedIds, onChange, disa
         }
     };
 
+    // Determine display value for the button based on selection mode
+    const buttonDisplayText = useMemo(() => {
+        if (isSingleSelect) {
+            if (currentSingleSelectionId !== null) {
+                return options.find(o => o.id === currentSingleSelectionId)?.name || `${label} (Selected)`;
+            }
+            return `${label} (None)`;
+        } else {
+            if (isAllUnfilteredSelected) return `${label} (All)`;
+            if (selectedCount === 0) return `${label} (All)`;
+            if (selectedCount === 1) return options.find(o => o.id === selectedIds[0])?.name || `${label} (1)`;
+            return `${label} (${selectedCount})`;
+        }
+    }, [isSingleSelect, currentSingleSelectionId, selectedCount, options, label, isAllUnfilteredSelected, selectedIds]);
+
     return (
         <div className="relative z-20" ref={dropdownRef}>
             <button
@@ -79,14 +111,7 @@ const MultiSelectDropdown = ({ name, label, options, selectedIds, onChange, disa
                     focus:outline-none focus:ring-2 focus:ring-[#00BFFF]`}
             >
                 <span className="truncate">
-                    {/* Display text based on UNFILTERED selection count */}
-                    {isAllUnfilteredSelected 
-                        ? `${label} (All)` 
-                        : selectedCount === 0 
-                        ? `${label} (All)` 
-                        : selectedCount === 1 
-                        ? options.find(o => o.id === selectedIds[0])?.name || `${label} (1)`
-                        : `${label} (${selectedCount})`}
+                    {buttonDisplayText}
                 </span>
                 <FaChevronDown className={`w-3 h-3 transition-transform ${isOpen ? 'transform rotate-180' : ''}`} />
             </button>
@@ -107,30 +132,36 @@ const MultiSelectDropdown = ({ name, label, options, selectedIds, onChange, disa
                         />
                     </div>
 
-                    {/* Select All */}
-                    <label className="flex items-center space-x-2 py-1 px-2 border-b cursor-pointer hover:bg-gray-50 sticky top-0 bg-white z-10">
-                        <input
-                            type="checkbox"
-                            // If search is active, check against filtered list, otherwise check against total list
-                            checked={searchTerm ? isAllSelected : isAllUnfilteredSelected}
-                            onChange={toggleAll}
-                            className="text-[#00BFFF] focus:ring-[#00BFFF]"
-                        />
-                        <span className="font-semibold text-gray-700">
-                            Select All ({filteredOptions.length} {searchTerm && `of ${options.length}`})
-                        </span>
-                    </label>
+                    {/* Select All (Only for multi-select) */}
+                    {!isSingleSelect && filteredOptions.length > 0 && (
+                        <label className="flex items-center space-x-2 py-1 px-2 border-b cursor-pointer hover:bg-gray-50 sticky top-0 bg-white z-10">
+                            <input
+                                type="checkbox"
+                                // If search is active, check against filtered list, otherwise check against total list
+                                checked={searchTerm ? isAllSelected : isAllUnfilteredSelected}
+                                onChange={toggleAll}
+                                className="text-[#00BFFF] focus:ring-[#00BFFF]"
+                            />
+                            <span className="font-semibold text-gray-700">
+                                Select All ({filteredOptions.length} {searchTerm && `of ${options.length}`})
+                            </span>
+                        </label>
+                    )}
 
                     {/* Scrollable Options */}
                     <div className="max-h-52 overflow-y-auto">
                         {filteredOptions.length === 0 ? (
                             <p className="text-gray-500 text-sm p-2">No results found for "{searchTerm}".</p>
                         ) : (
-                            filteredOptions.map((option) => ( // Use filteredOptions here
-                                <label key={option.id} className="flex items-center space-x-2 py-1 px-2 cursor-pointer hover:bg-gray-50">
+                            filteredOptions.map((option) => (
+                                <label 
+                                    key={option.id} 
+                                    className="flex items-center space-x-2 py-1 px-2 cursor-pointer hover:bg-gray-50"
+                                >
                                     <input
-                                        type="checkbox"
-                                        checked={selectedIds.includes(option.id)}
+                                        type={isSingleSelect ? "radio" : "checkbox"} // Use radio for single select
+                                        name={isSingleSelect ? `single-select-${name}` : undefined} // Group radio buttons
+                                        checked={isSingleSelect ? (currentSingleSelectionId === option.id) : selectedIds.includes(option.id)}
                                         onChange={() => handleCheckboxChange(option.id)}
                                         className="text-[#00BFFF] focus:ring-[#00BFFF]"
                                     />
@@ -139,6 +170,19 @@ const MultiSelectDropdown = ({ name, label, options, selectedIds, onChange, disa
                             ))
                         )}
                     </div>
+                    
+                    {/* NEW: Go Button (Only for single-select mode with onGoClick) */}
+                    {isSingleSelect && onGoClick && (currentSingleSelectionId !== null) && (
+                        <div className="px-2 py-2 border-t mt-2">
+                            <button
+                                onClick={handleGoClickInternal}
+                                className="w-full py-2 px-4 bg-[#00BFFF] text-white rounded-lg hover:bg-sky-600 transition duration-150 text-sm font-semibold"
+                                disabled={currentSingleSelectionId === null}
+                            >
+                                Go
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

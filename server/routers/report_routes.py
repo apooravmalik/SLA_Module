@@ -15,32 +15,28 @@ router = APIRouter(
     tags=["Report Data"]
 )
 
+@router.get("/incident_sub_categories", response_model=List[dict])
+def get_incident_sub_categories(
+    db: Session = Depends(get_db)
+):
+    """Fetches incident subcategories for the waiver dropdown."""
+    return report_data_service.get_incident_sub_categories(db)
+
 @router.get("/", response_model=ReportResponse)
 def get_report_data(
     db: Session = Depends(get_db),
-    zone_id: Optional[List[str]] = Query(None),
-    street_id: Optional[List[str]] = Query(None),
-    unit_id: Optional[List[str]] = Query(None),
+    zone_id: Optional[List[int]] = Query(None),
+    street_id: Optional[List[int]] = Query(None),
+    unit_id: Optional[List[int]] = Query(None),
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
     skip: int = Query(0),
     limit: int = Query(500),
 ):
-    def to_int_list(values: Optional[List[str]]):
-        if not values:
-            return None
-        cleaned = []
-        for v in values:
-            try:
-                cleaned.append(int(v))
-            except (TypeError, ValueError):
-                pass
-        return cleaned or None
-
     filters = DashboardFilters(
-        zone_id=to_int_list(zone_id),
-        street_id=to_int_list(street_id),
-        unit_id=to_int_list(unit_id),
+        zone_id=zone_id,
+        street_id=street_id,
+        unit_id=unit_id,
         date_from=date_from,
         date_to=date_to,
         skip=skip,
