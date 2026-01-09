@@ -7,6 +7,9 @@ from sqlalchemy import text
 from datetime import datetime, timedelta
 from schemas import DashboardKPIs, DashboardFilters
 import re
+import duckdb
+import os
+from services import cache_data_service
 
 DB_SCHEMA = "dbo"
 STATUS_OPEN_FK = 1
@@ -133,10 +136,10 @@ async def calculate_closed_incidents(db: Session, filters: DashboardFilters):
 
 
 # ------------------------------------------------------
-# 🔥 FINAL: SLA Penalty Calculation (Matches Working SQL)
+# 🔥 FINAL: SLA Penalty Calculation (Uses DuckDB Cache)
 # ------------------------------------------------------
 async def calculate_penalty(db: Session, filters: DashboardFilters) -> Decimal:
-    await asyncio.sleep(0.05)
+    await asyncio.sleep(0.01)  # Reduced since we're using cache now
 
     # ---------- DATE LOGIC ----------
     if filters.date_from and filters.date_to:
@@ -151,158 +154,55 @@ async def calculate_penalty(db: Session, filters: DashboardFilters) -> Decimal:
         start_date = first_day_prev_month
         end_date = first_day_this_month
 
-    # ---------- Filter Lists (for STRING_SPLIT) ----------
-    zone_list = ",".join(str(z) for z in filters.zone_id) if filters.zone_id else ""
-    street_list = ",".join(str(s) for s in filters.street_id) if filters.street_id else ""
-    unit_list = ",".join(str(u) for u in filters.unit_id) if filters.unit_id else ""
+    # Ensure cache exists and is up-to-date
+    duckdb_file_path = cache_data_service.get_duckdb_file_path(start_date)
+    if cache_data_service.is_duckdb_file_stale(duckdb_file_path) or not os.path.exists(duckdb_file_path):
+        # Regenerate cache if missing or stale
+        cache_data_service.regenerate_duckdb_cache(db, start_date, end_date)
 
-    params = {
-        "start_date": start_date,
-        "end_date": end_date,
-        "zone_list": zone_list,
-        "street_list": street_list,
-        "unit_list": unit_list,
-    }
+    # Query DuckDB cache for penalty calculation
+    if not os.path.exists(duckdb_file_path):
+        # If cache still doesn't exist after regeneration attempt, return 0
+        print(f"⚠️ WARNING: DuckDB cache file not found: {duckdb_file_path}")
+        return Decimal("0")
 
-    # ---------- FULL SQL (NEW ROBUST LOGIC) ----------
-    penalty_sql = text(f"""
-        WITH PenaltyBase AS (
-            SELECT
-                n.NVR_PRK,
-                n.nvrAlias_TXT,
-                n.nvrIPAddress_TXT,
+    # Build filter conditions for DuckDB (DuckDB uses positional parameters, so we'll build the IN clause directly)
+    where_clauses = []
+    
+    # Build zone filter
+    if filters.zone_id:
+        zone_ids = ",".join(str(z) for z in filters.zone_id)
+        where_clauses.append(f"gclZone_FRK IN ({zone_ids})")
+    
+    # Build street filter
+    if filters.street_id:
+        street_ids = ",".join(str(s) for s in filters.street_id)
+        where_clauses.append(f"gclStreet_FRK IN ({street_ids})")
+    
+    # Build unit filter
+    if filters.unit_id:
+        unit_ids = ",".join(str(u) for u in filters.unit_id)
+        where_clauses.append(f"gclUnit_FRK IN ({unit_ids})")
+    
+    combined_where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
 
-                cam.Camera_PRK,
-                cam.camName_TXT,
+    # Query DuckDB to calculate SUM(PenaltyAmount) with filters applied
+    with duckdb.connect(database=duckdb_file_path, read_only=True) as con:
+        penalty_query = f"""
+            SELECT COALESCE(SUM(PenaltyAmount), 0) AS TotalPenalty
+            FROM cached_report_data
+            WHERE {combined_where_clause};
+        """
+        
+        result = con.execute(penalty_query).fetchone()
+        total_penalty = result[0] if result and result[0] is not None else 0.0
 
-                gr.gclZone_FRK,
-                z.cznName_TXT AS ZoneName,
-                gr.gclStreet_FRK,
-                s.strName_TXT AS StreetName,
-                gr.gclBuilding_FRK,
-                b.bldBuildingName_TXT AS BuildingName,
-                gr.gclUnit_FRK,
-                u.untUnitName_TXT AS UnitName,
+    print(f"\n--- DASHBOARD PENALTY (FROM DUCKDB CACHE) ---")
+    print(f"Total Penalty: {total_penalty}")
+    print(f"Filters applied: Zone={filters.zone_id}, Street={filters.street_id}, Unit={filters.unit_id}")
+    print("--------------------------------------------\n")
 
-                lo.OfflineTime,
-                lon.OnlineTime,
-                eff.EffectiveEndForMonth, 
-
-                -- Offline minutes clipped within the reporting month
-                CAST(
-                    CASE 
-                        WHEN lo.OfflineTime IS NULL THEN NULL
-                        WHEN eff.EffectiveEndForMonth < lo.OfflineTime THEN 0
-                        ELSE DATEDIFF(MINUTE, lo.OfflineTime, eff.EffectiveEndForMonth)
-                    END AS INT
-                ) AS OfflineMinutes,
-
-                -- Penalty: if OfflineMinutes >= 1440 then ceil(hours)*500 else 0
-                CAST(
-                    CASE
-                        WHEN lo.OfflineTime IS NULL THEN 0
-                        ELSE
-                            CASE
-                                WHEN CAST(
-                                        CASE 
-                                            WHEN eff.EffectiveEndForMonth < lo.OfflineTime THEN 0
-                                            ELSE DATEDIFF(MINUTE, lo.OfflineTime, eff.EffectiveEndForMonth)
-                                        END AS FLOAT
-                                    ) >= 1440 
-                                THEN CEILING(
-                                        CAST(
-                                            CASE 
-                                                WHEN eff.EffectiveEndForMonth < lo.OfflineTime THEN 0
-                                                ELSE DATEDIFF(MINUTE, lo.OfflineTime, eff.EffectiveEndForMonth)
-                                            END AS FLOAT
-                                        ) / 60.0
-                                    ) * 500.0
-                                ELSE 0.0
-                            END
-                    END AS DECIMAL(10, 2)
-                ) AS PenaltyAmount
-
-            FROM {DB_SCHEMA}.Camera_TBL cam
-            
-            -- NVR mapping
-            LEFT JOIN {DB_SCHEMA}.NVRChannel_TBL nc ON nc.nchCamera_FRK = cam.Camera_PRK
-            LEFT JOIN {DB_SCHEMA}.NVR_TBL n ON n.NVR_PRK = nc.nchNVR_FRK
-
-            -- Pick one geo-link per camera (TOP 1) to avoid duplication
-            OUTER APPLY (
-                SELECT TOP (1) g.*
-                FROM {DB_SCHEMA}.GeoRollupCameraLink_TBL g
-                WHERE g.gclCamera_FRK = cam.Camera_PRK
-            ) gr
-            LEFT JOIN {DB_SCHEMA}.CameraZone_TBL z ON z.CameraZone_PRK = gr.gclZone_FRK
-            LEFT JOIN {DB_SCHEMA}.Street_TBL s ON s.Street_PRK = gr.gclStreet_FRK
-            LEFT JOIN {DB_SCHEMA}.Building_TBL b ON b.Building_PRK = gr.gclBuilding_FRK
-            LEFT JOIN {DB_SCHEMA}.Unit_TBL u ON u.Unit_PRK = gr.gclUnit_FRK
-
-            -- Latest disconnect inside the period
-            OUTER APPLY (
-                SELECT TOP (1)
-                    il.inlDateTime_DTM AS OfflineTime
-                FROM {DB_SCHEMA}.IncidentLog_TBL il
-                WHERE il.inlSourceDevice_FRK = cam.Camera_PRK
-                  AND il.inlDateTime_DTM >= :start_date
-                  AND il.inlDateTime_DTM < :end_date
-                  AND il.inlAlarmMessage_TXT LIKE '%Channel disconnect%'
-                ORDER BY il.inlDateTime_DTM DESC
-            ) lo
-
-            -- First recovery after that disconnect (within period window; may be NULL)
-            OUTER APPLY (
-                SELECT TOP (1)
-                    il2.inlDateTime_DTM AS OnlineTime
-                FROM {DB_SCHEMA}.IncidentLog_TBL il2
-                WHERE il2.inlSourceDevice_FRK = cam.Camera_PRK
-                  AND il2.inlDateTime_DTM >= :start_date
-                  AND il2.inlDateTime_DTM < :end_date
-                  AND il2.inlAlarmMessage_TXT LIKE '%Channel connected%'
-                  AND lo.OfflineTime IS NOT NULL
-                  AND il2.inlDateTime_DTM > lo.OfflineTime
-                ORDER BY il2.inlDateTime_DTM ASC
-            ) lon
-
-            -- Compute EffectiveEndForMonth once (clip recovery to end date or GETDATE)
-            CROSS APPLY (
-                SELECT
-                    CASE 
-                        WHEN lo.OfflineTime IS NULL THEN NULL
-                        ELSE
-                            CASE 
-                                WHEN lon.OnlineTime IS NOT NULL AND lon.OnlineTime <= :end_date THEN lon.OnlineTime
-                                WHEN lon.OnlineTime IS NOT NULL AND lon.OnlineTime > :end_date THEN :end_date
-                                WHEN lon.OnlineTime IS NULL AND GETDATE() <= :end_date THEN GETDATE()
-                                ELSE :end_date
-                            END
-                    END AS EffectiveEndForMonth
-            ) eff
-
-            WHERE b.bldAlarmContractNumber_TXT = 'PWD'
-        )
-
-        SELECT SUM(PenaltyAmount) AS TotalPenalty
-        FROM PenaltyBase
-        WHERE 
-            ( COALESCE(:zone_list, '') = '' 
-              OR gclZone_FRK IN (SELECT TRIM([value]) FROM STRING_SPLIT(:zone_list, ',')) ) -- FIXED: Removed gr.
-
-          AND ( COALESCE(:street_list, '') = '' 
-              OR gclStreet_FRK IN (SELECT TRIM([value]) FROM STRING_SPLIT(:street_list, ',')) ) -- FIXED: Removed gr.
-
-          AND ( COALESCE(:unit_list, '') = '' 
-              OR gclUnit_FRK IN (SELECT TRIM([value]) FROM STRING_SPLIT(:unit_list, ',')) ); -- FIXED: Removed gr.
-    """)
-
-    # Debug log
-    print("\n--- SLA PENALTY SQL (EXECUTED) ---")
-    print(substitute_params(penalty_sql.text, params))
-    print("----------------------------------\n")
-
-    result = db.execute(penalty_sql, params).scalar_one()
-    return Decimal(str(result)) if result else Decimal("0")
+    return Decimal(str(total_penalty))
 
 
 # ------------------------------------------------------
@@ -329,4 +229,4 @@ async def get_dashboard_data(db: Session, filters: DashboardFilters) -> Dashboar
         else:
             output[key] = val
 
-    return DashboardKPIs(**static_kpis, **output, error_details=errors)
+    return DashboardKPIs(**static_kpis, **output, rows=[],  error_details=errors)

@@ -59,13 +59,18 @@ class DashboardKPIs(BaseModel):
     total_streets: int
     total_units: int
     
+    
     # Dynamic KPIs (Filtered and potentially calculated)
     total_open_incidents: int
     total_closed_incidents: int
     total_penalty: Decimal = Field(..., description="Calculated SLA Penalty for the period.")
 
+
     # Graceful error handling structure
     error_details: dict[str, str] = Field(default={}, description="Errors encountered during KPI calculation.")
+    
+    rows: list = Field(default_factory=list)
+    error_details: dict[str, str] = Field(default_factory=dict)
 
     class Config:
         from_attributes = True
@@ -102,11 +107,20 @@ class ReportRow(BaseModel):
     OfflineMinutes: Optional[int] = None
     Status: Optional[str] = None
     PenaltyAmount: Decimal = Field(..., description="Penalty amount calculated for downtime.")
+    IncidentLog_PRK: Optional[int] = None
+    WaiverCategory: Optional[str] = None
 
 class ReportResponse(BaseModel):
     total_rows: int
     data: list[ReportRow]
     
+# Schema for Penalty Waiver Request
+class PenaltyWaiverRequest(BaseModel):
+    date_from: datetime
+    date_to: datetime
+    incident_log_prk: int
+    subcategory_id: int
+
 class IncidentDetail(BaseModel):
     IncidentLog_PRK: int
     inlIncidentDetails_MEM: Optional[str] = None

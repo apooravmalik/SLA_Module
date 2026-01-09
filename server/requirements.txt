@@ -14,3 +14,10 @@ python-dotenv
 # Security (JWT and Password Hashing)
 python-jose[cryptography]
 passlib[bcrypt]
+
+# DuckDB (for local development)
+duckdb
+pandas
+
+#report pdf
+reportlab
