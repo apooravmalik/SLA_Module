@@ -6,7 +6,7 @@ import { FaArrowLeft, FaSpinner } from 'react-icons/fa';
 // ------------------------------------------------------------------
 // Base Configuration
 // ------------------------------------------------------------------
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'; 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://172.168.1.15:8001/api'; 
 const PAGE_LIMIT = 500; // Define a fixed page size to prevent crashing
 
 const ENDPOINTS = {

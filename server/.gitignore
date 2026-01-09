@@ -10,7 +10,3 @@ venv
 
 # Cache files
 */__pycache__/
-
-
-*.duckdb
-*.zip

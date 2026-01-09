@@ -5,7 +5,7 @@ import MultiSelectDropdown from './MultiSelectDropdown'; // Import MultiSelectDr
 import belLogo from "../assets/bel_logo.png";
 import { FaPlay } from 'react-icons/fa';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'; 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://172.168.1.15:8001/api'; 
 const MASTER_DATA_URL = `${API_BASE_URL}/master/filters`;
 
 // Renamed onFilterChange to onApplyFilters

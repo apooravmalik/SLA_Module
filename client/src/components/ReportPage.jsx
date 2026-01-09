@@ -22,25 +22,25 @@ import MultiSelectDropdown from "./MultiSelectDropdown"; // NEW IMPORT
 // Base Configuration
 // ------------------------------------------------------------------
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+  import.meta.env.VITE_API_BASE_URL || "http://172.168.1.15:8001/api";
 const REPORT_URL = `${API_BASE_URL}/report/`;
 const DOWNLOAD_URL = `${API_BASE_URL}/report/download`;
 const DOWNLOAD_PDF_URL = `${API_BASE_URL}/report/download-pdf`;
 const CACHE_URL = `${API_BASE_URL}/cache/`; // NEW CACHE API URL
-const INCIDENT_SUBCATEGORIES_URL = "/api/report/incident_sub_categories";
+const INCIDENT_SUBCATEGORIES_URL = `${API_BASE_URL}/report/incident_sub_categories`;
 //const INCIDENT_SUBCATEGORIES_URL = `${API_BASE_URL}/report/incident_sub_categories`; // NEW API URL
-const PAGE_LIMIT = 500; // Define the fixed page size
+const PAGE_LIMIT = 10000; // Define the fixed page size
 
 const reportColumns = [
-  { header: "NVR Alias", key: "nvrAlias_TXT", width: "150px" },
-  { header: "Camera Name", key: "camName_TXT", width: "150px" },
+  { header: "NVR Alias", key: "nvrAlias_TXT", width: "130px" },
+  { header: "Camera Name", key: "camName_TXT", width: "130px" },
   { header: "Constituencies", key: "ZoneName" },
   { header: "RWA", key: "StreetName" },
   { header: "PKG", key: "UnitName" },
-  { header: "Incident Log PRK", key: "IncidentLog_PRK", width: "150px" }, // NEWLY ADDED
+  { header: "Incident Log PRK", key: "IncidentLog_PRK", width: "130px" }, // NEWLY ADDED
 //   { header: "Category", key: "WaiverCategory", width: "150px", isCustom: true }, // NEWLY ADDED for waiver dropdown
-  { header: "Offline Time", key: "OfflineTime", width: "180px" },
-  { header: "Online Time", key: "OnlineTime", width: "180px" },
+  { header: "Offline Time", key: "OfflineTime", width: "150px" },
+  { header: "Online Time", key: "OnlineTime", width: "150px" },
   { header: "Offline Minutes", key: "OfflineMinutes" },
   { header: "Penalty", key: "PenaltyAmount", width: "100px" },
 ];

@@ -7,7 +7,7 @@ import { FaMapMarkerAlt, FaRoad, FaBuilding, FaExclamationTriangle, FaCheckCircl
 const SKY_BLUE = '#00BFFF'; 
 
 // Base URL from environment (Vite must be configured for this)
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api'; 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://172.168.1.15:8001/api'; 
 const DASHBOARD_URL = `${API_BASE_URL}/dashboard/`;
 
 // --- KPICard Component ---

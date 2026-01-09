@@ -35,7 +35,7 @@ def get_report_data(
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
     skip: int = Query(0),
-    limit: int = Query(500),
+    limit: int = Query(10000),
 ):
     filters = DashboardFilters(
         zone_id=zone_id,
@@ -207,7 +207,7 @@ def download_report_pdf(
     filters = DashboardFilters(
         zone_id=zone_id, street_id=street_id, unit_id=unit_id,
         date_from=date_from, date_to=date_to,
-        limit=1000, # PDF generation is resource-heavy, limited to 1000 rows for safety
+        limit=100000,
     )
     
     report_response = report_data_service.get_detailed_report(db, filters)
