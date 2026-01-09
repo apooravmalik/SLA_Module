@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+/* Global CSS Variables (Design Tokens) */
+:root {
+  /* Color Palette */
+  --color-primary-bg: #FFFFFF;       /* White */
+  --color-secondary-accent: #00BFFF; /* Sky Blue */
+  --color-secondary-hover: #009ACD;  /* Darker Sky Blue for hover states */
+}
