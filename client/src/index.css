@@ -2,8 +2,32 @@
 
 /* Global CSS Variables (Design Tokens) */
 :root {
-  /* Color Palette */
-  --color-primary-bg: #FFFFFF;       /* White */
+  /* --- Light Mode (Default) --- */
+  --bg-app: #f9fafb;         /* gray-50 equivalent */
+  --bg-panel: #ffffff;       /* white equivalent */
+  --text-main: #1f2937;      /* gray-800 equivalent */
+  --text-muted: #6b7280;     /* gray-500 equivalent */
+  --border-main: #e5e7eb;    /* gray-200 equivalent */
+  --dashboard-main: #009ACD;
+  
+  /* Brand Colors */
   --color-secondary-accent: #00BFFF; /* Sky Blue */
-  --color-secondary-hover: #009ACD;  /* Darker Sky Blue for hover states */
+  --color-secondary-hover: #009ACD;  /* Darker Sky Blue */
+}
+
+/* --- Dark Mode Overrides --- */
+[data-theme='dark'] {
+  --bg-app: #353535;      /* neutral dark gray */
+  --bg-panel: #2b2b2b;   /* slightly darker for separation */
+  --text-main: #f1f1f1;  /* clean, soft white */
+  --text-muted: #b5b5b5;/* readable but clearly secondary */
+  --border-main: #444444;/* subtle contrast border */
+  --dashboard-main: #f1f1f1;
+}
+
+/* Apply global styles using variables */
+body {
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  transition: background-color 0.1s ease, color 0.1s ease;
 }

@@ -29,7 +29,7 @@ const DOWNLOAD_PDF_URL = `${API_BASE_URL}/report/download-pdf`;
 const CACHE_URL = `${API_BASE_URL}/cache/`; // NEW CACHE API URL
 const INCIDENT_SUBCATEGORIES_URL = `${API_BASE_URL}/report/incident_sub_categories`;
 //const INCIDENT_SUBCATEGORIES_URL = `${API_BASE_URL}/report/incident_sub_categories`; // NEW API URL
-const PAGE_LIMIT = 10000; // Define the fixed page size
+const PAGE_LIMIT = 5000; // Define the fixed page size
 
 const reportColumns = [
   { header: "NVR Alias", key: "nvrAlias_TXT", width: "130px" },
@@ -38,7 +38,7 @@ const reportColumns = [
   { header: "RWA", key: "StreetName" },
   { header: "PKG", key: "UnitName" },
   { header: "Incident Log PRK", key: "IncidentLog_PRK", width: "130px" }, // NEWLY ADDED
-//   { header: "Category", key: "WaiverCategory", width: "150px", isCustom: true }, // NEWLY ADDED for waiver dropdown
+  //   { header: "Category", key: "WaiverCategory", width: "150px", isCustom: true }, // NEWLY ADDED for waiver dropdown
   { header: "Offline Time", key: "OfflineTime", width: "150px" },
   { header: "Online Time", key: "OnlineTime", width: "150px" },
   { header: "Offline Minutes", key: "OfflineMinutes" },
@@ -74,9 +74,13 @@ const formatErrorMessage = (errorData) => {
 // ------------------------------------------------------------------
 // Table Component (In-line rendering with forwardRef for scroll access)
 // ------------------------------------------------------------------
+// ------------------------------------------------------------------
+// Table Component (In-line rendering with forwardRef for scroll access)
+// ------------------------------------------------------------------
 const TableContent = React.forwardRef(
   (
     {
+      theme,
       data,
       columns,
       sortConfig,
@@ -88,9 +92,25 @@ const TableContent = React.forwardRef(
     },
     ref
   ) => {
+    // --- Style Logic based on Theme Prop ---
+    const isDark = theme === 'dark';
+    const styles = {
+      containerBorder: isDark ? 'border-[#444444]' : 'border-gray-200',
+      headerBg: isDark ? 'bg-[#353535]' : 'bg-gray-50',
+      headerText: isDark ? 'text-[#b5b5b5]' : 'text-gray-700',
+      headerHover: isDark ? 'hover:bg-[#404040]' : 'hover:bg-gray-100',
+      rowBg: isDark ? 'bg-[#2b2b2b]' : 'bg-white',
+      rowBorder: isDark ? 'border-[#444444]' : 'border-gray-200',
+      rowHover: isDark ? 'hover:bg-[#353535]' : 'hover:bg-gray-50',
+      textMain: isDark ? 'text-[#f1f1f1]' : 'text-gray-900',
+      textMuted: isDark ? 'text-[#b5b5b5]' : 'text-gray-500',
+      divideColor: isDark ? 'divide-[#444444]' : 'divide-gray-200'
+    };
+    // ----------------------------------------
+
     if (!data || data.length === 0) {
       return (
-        <p className="text-gray-500 p-4">
+        <p className={`${styles.textMuted} p-4`}>
           No report data found for the current filters.
         </p>
       );
@@ -114,17 +134,17 @@ const TableContent = React.forwardRef(
     };
 
     return (
-      <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
+      <div className={`relative overflow-x-auto shadow-md sm:rounded-lg border ${styles.containerBorder}`}>
         {/* Scrollable container for infinite loading */}
         <div ref={ref} className="max-h-[70vh] overflow-y-auto">
-          <table className="w-full text-sm text-left text-gray-500">
-            <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 z-30">
+          <table className={`w-full text-sm text-left ${styles.textMuted}`}>
+            <thead className={`text-xs uppercase sticky top-0 z-30 ${styles.headerText} ${styles.headerBg}`}>
               <tr>
                 {columnHeaders.map((col) => (
                   <th
                     key={col.key}
                     scope="col"
-                    className="px-6 py-3 cursor-pointer hover:bg-gray-100 transition-colors"
+                    className={`px-6 py-3 cursor-pointer ${styles.headerHover}`}
                     style={{ minWidth: col.width }}
                     onClick={() => onSort(col.key)} // Handle sorting on click
                   >
@@ -136,7 +156,7 @@ const TableContent = React.forwardRef(
                 ))}
               </tr>
             </thead>
-            <tbody>
+            <tbody className={`divide-y ${styles.divideColor}`}>
               {data.map((row, rowIndex) => {
                 // Determine current selected subcategory for this IncidentLog_PRK
                 const currentSelectedSubcategory =
@@ -147,14 +167,14 @@ const TableContent = React.forwardRef(
                 return (
                   <tr
                     key={rowIndex}
-                    className="bg-white border-b hover:bg-gray-50"
+                    className={`${styles.rowBg} border-b ${styles.rowBorder} ${styles.rowHover}`}
                   >
                     {columnHeaders.map((col) => {
                       if (col.isCustom && col.key === "WaiverCategory") {
                         return (
                           <td
                             key={col.key}
-                            className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap"
+                            className={`px-6 py-4 font-medium ${styles.textMain} whitespace-nowrap`}
                           >
                             <div className="flex items-center space-x-2">
                               <MultiSelectDropdown
@@ -175,6 +195,7 @@ const TableContent = React.forwardRef(
                                     subcategoryId
                                   )
                                 } // Pass the Go handler
+                                theme={theme} // Pass theme to dropdown if it supports it
                                 // Disable if penalty is already 0, or if no IncidentLog_PRK
                                 disabled={
                                   row.PenaltyAmount === 0 ||
@@ -219,7 +240,7 @@ const TableContent = React.forwardRef(
                       return (
                         <td
                           key={col.key}
-                          className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap"
+                          className={`px-6 py-4 font-medium ${styles.textMain} whitespace-nowrap`}
                         >
                           {displayValue}
                         </td>
@@ -236,7 +257,7 @@ const TableContent = React.forwardRef(
   }
 );
 
-const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => {
+const ReportPage = ({ onGoToDashboard, onLogout, reportContext, theme, toggleTheme }) => {
   // State to hold the filters currently applied to the report data
   const [appliedFilters, setAppliedFilters] = useState({});
   const [reportData, setReportData] = useState([]);
@@ -803,49 +824,67 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6 font-poppins">
-      {/* NEW HEADING: Above Navbar */}
-      <h1 className="text-3xl font-extrabold text-[#00BFFF] mb-4 text-center">
+    <div
+      className="min-h-screen bg-[var(--bg-app)] p-6 font-poppins transition-colors duration-300"
+      style={{ backgroundColor: "var(--bg-app)" }}
+    >
+      <h1
+        className="text-3xl font-extrabold mb-4 text-center"
+        style={{ color: "var(--color-secondary-accent)" }}
+      >
         SLA MODULE - PKG 2 - REPORT
       </h1>
 
-      {/* Navbar and Filters */}
-      <Navbar
-        onApplyFilters={handleApplyFilters}
-        onLogout={onLogout}
-        currentFilters={appliedFilters}
+      <Navbar 
+        onApplyFilters={handleApplyFilters} 
+        onLogout={onLogout} 
+        currentFilters={appliedFilters} 
+        theme={theme}
+        toggleTheme={toggleTheme} 
       />
 
-      <div className="mt-6 flex justify-between items-center pb-4 border-b">
+      <div
+        className="mt-6 flex justify-between items-center pb-4"
+        style={{ borderBottom: "1px solid var(--border-main)" }}
+      >
         <div className="flex items-center space-x-4">
-          {/* Back to Dashboard Button */}
           <button
             onClick={onGoToDashboard}
-            className="py-2 px-4 border border-gray-300 rounded-lg shadow-md text-gray-700 font-semibold bg-white hover:bg-gray-100 transition duration-150 flex items-center space-x-2"
+            className="py-2 px-4 rounded-lg shadow-md font-semibold transition duration-150 flex items-center space-x-2 hover:opacity-90"
+            style={{
+              backgroundColor: "var(--bg-panel)",
+              color: "var(--text-main)",
+              border: "1px solid var(--border-main)",
+            }}
           >
             <FaArrowLeft />
             <span>Back to Dashboard</span>
           </button>
 
-          <h2 className="text-xl font-bold text-gray-700">
+          <h2
+            className="text-xl font-bold"
+            style={{ color: "var(--text-main)" }}
+          >
             Report Page (Pagination: {PAGE_LIMIT} records)
           </h2>
         </div>
 
-        {/* Total Rows Indicator */}
-        <span className="text-md text-gray-600">
+        <span className="text-md" style={{ color: "var(--text-muted)" }}>
           Total Rows (Filtered):{" "}
           {loadingInitial ? "..." : totalRows.toLocaleString()}
         </span>
       </div>
 
-      {/* Timeline / Download Bar */}
       <div className="flex justify-start space-x-4 mt-4">
-        {/* Timeline Dropdown */}
         <select
           value={activeTimeline}
           onChange={(e) => handleTimelineChange(e.target.value)}
-          className="py-2 px-4 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 border border-gray-300 cursor-pointer transition duration-150"
+          className="py-2 px-4 rounded-lg cursor-pointer transition duration-150"
+          style={{
+            backgroundColor: "var(--bg-panel)",
+            color: "var(--text-main)",
+            border: "1px solid var(--border-main)",
+          }}
         >
           <option value="">Timeline (Custom)</option>
           {timelineOptions.map((opt) => (
@@ -855,10 +894,13 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => {
           ))}
         </select>
 
-        {/* Refresh Cache Button - NEW */}
         <button
           onClick={handleRefreshCache}
-          className="py-2 px-4 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center space-x-2 transition duration-150"
+          className="py-2 px-4 rounded-lg flex items-center space-x-2 transition duration-150 hover:opacity-90"
+          style={{
+            backgroundColor: "#6b7280",
+            color: "#ffffff",
+          }}
           disabled={isRefreshingCache || loadingInitial}
         >
           {isRefreshingCache ? (
@@ -871,11 +913,14 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => {
           )}
         </button>
 
-        {/* Download Dropdown */}
         <div className="relative overflow-visible z-50">
           <button
             onClick={() => setDownloadDropdownOpen(!downloadDropdownOpen)}
-            className="py-2 px-4 bg-[#00BFFF] text-white rounded-lg hover:bg-sky-600 flex items-center space-x-2 transition duration-150"
+            className="py-2 px-4 rounded-lg flex items-center space-x-2 transition duration-150 hover:opacity-90"
+            style={{
+              backgroundColor: "var(--color-secondary-accent)",
+              color: "#ffffff",
+            }}
             disabled={
               loadingInitial || reportData.length === 0 || isDownloading
             }
@@ -893,19 +938,17 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => {
             )}
           </button>
           {downloadDropdownOpen && (
-            <div className="absolute left-0 mt-2 w-40 bg-white border border-gray-200 rounded-lg shadow-xl z-50">
-              {/* <button
-                onClick={() => handleDownload("CSV")}
-                className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition duration-150 rounded-t-lg"
-                disabled={
-                  loadingInitial || reportData.length === 0 || isDownloading
-                }
-              >
-                Download CSV
-              </button> */}
+            <div
+              className="absolute left-0 mt-2 w-40 rounded-lg shadow-xl z-50"
+              style={{
+                backgroundColor: "var(--bg-panel)",
+                border: "1px solid var(--border-main)",
+              }}
+            >
               <button
                 onClick={() => handleDownload("PDF")}
-                className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition duration-150 rounded-b-lg"
+                className="block w-full text-left px-4 py-2 text-sm transition duration-150 rounded-b-lg hover:opacity-80"
+                style={{ color: "var(--text-main)" }}
                 disabled={
                   loadingInitial || reportData.length === 0 || isDownloading
                 }
@@ -917,24 +960,31 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => {
         </div>
       </div>
 
-      {/* Error Display */}
       {globalError && (
         <div
-          className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative my-4"
+          className="border px-4 py-3 rounded relative my-4"
           role="alert"
+          style={{
+            backgroundColor: "#fee2e2",
+            borderColor: "#f87171",
+            color: "#b91c1c",
+          }}
         >
           <strong className="font-bold">Error: </strong>
           <span className="block sm:inline">{globalError}</span>
         </div>
       )}
 
-      {/* Table Component */}
       <div className="mt-6">
         {loadingInitial ? (
-          <div className="text-center py-12 text-[#00BFFF]">
+          <div
+            className="text-center py-12"
+            style={{ color: "var(--color-secondary-accent)" }}
+          >
             <svg
-              className="animate-spin h-8 w-8 text-[#00BFFF] inline-block mr-3"
+              className="animate-spin h-8 w-8 inline-block mr-3"
               viewBox="0 0 24 24"
+              style={{ color: "var(--color-secondary-accent)" }}
             >
               <circle
                 className="opacity-25"
@@ -957,27 +1007,32 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext }) => {
           <>
             <TableContent
               data={sortedData}
+              theme = {theme}
               columns={reportColumns}
               ref={scrollContainerRef}
               sortConfig={sortConfig}
-              onSort={handleSort} // Pass sort handler
-              incidentSubCategories={incidentSubCategories} // NEW PROP
-              selectedWaiverCategories={selectedWaiverCategories} // NEW PROP
-              onWaiverCategoryChange={handleWaiverCategoryChange} // NEW PROP
-              onWaivePenalty={handleWaivePenalty} // NEW PROP
+              onSort={handleSort}
+              incidentSubCategories={incidentSubCategories}
+              selectedWaiverCategories={selectedWaiverCategories}
+              onWaiverCategoryChange={handleWaiverCategoryChange}
+              onWaivePenalty={handleWaivePenalty}
             />
 
-            {/* Infinite Scroll Loading Indicator */}
             {loadingMore && (
-              <div className="text-center py-4 text-[#00BFFF]">
+              <div
+                className="text-center py-4"
+                style={{ color: "var(--color-secondary-accent)" }}
+              >
                 <FaSpinner className="animate-spin h-6 w-6 inline-block mr-2" />
                 Loading more data...
               </div>
             )}
 
-            {/* End of results message */}
             {!hasMore && reportData.length > 0 && !loadingMore && (
-              <div className="text-center py-4 text-gray-500 text-sm">
+              <div
+                className="text-center py-4 text-sm"
+                style={{ color: "var(--text-muted)" }}
+              >
                 End of report data. ({reportData.length} of{" "}
                 {totalRows.toLocaleString()} displayed)
               </div>

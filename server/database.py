@@ -42,7 +42,7 @@ def create_connection_string():
 # Create engine
 engine = create_engine(
     create_connection_string(),
-    echo=False,  # Set to False by default, can be toggled to True for debugging
+    echo=True,  # Set to False by default, can be toggled to True for debugging
     pool_size=5,
     max_overflow=10,
     pool_timeout=30,

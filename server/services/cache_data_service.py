@@ -119,7 +119,7 @@ def regenerate_duckdb_cache(db: Session, month_start_date: datetime, month_end_d
                                             WHEN eff.EffectiveEndForMonth < lo.OfflineTime THEN 0
                                             ELSE DATEDIFF(MINUTE, lo.OfflineTime, eff.EffectiveEndForMonth)
                                         END AS FLOAT
-                                    ) / 60.0
+                                    ) / 1440.0
                                 ) * 500.0
                             ELSE 0.0
                         END
@@ -304,7 +304,8 @@ def query_cached_report_data(month_start_date: datetime, filters: DashboardFilte
             duckdb_query = f"""
                 SELECT * FROM cached_report_data
                 WHERE {combined_where_clause}
-                ORDER BY Camera_PRK;
+                ORDER BY Camera_PRK
+                LIMIT {filters.limit} OFFSET {filters.skip};
             """
             
             print(f"🔍 DuckDB Query for {month_start_date.strftime('%Y-%m')}:\n{duckdb_query}\n")
