@@ -279,7 +279,7 @@ def query_cached_report_data(month_start_date: datetime, filters: DashboardFilte
 
     try:
         with duckdb.connect(database=duckdb_file_path, read_only=True) as con:
-            # 🔥 FIX: Build WHERE clauses with direct value substitution for DuckDB
+            # FIX: Build WHERE clauses with direct value substitution for DuckDB
             where_clauses = []
             
             # Zone filter
@@ -300,15 +300,36 @@ def query_cached_report_data(month_start_date: datetime, filters: DashboardFilte
             # Combine all WHERE clauses
             combined_where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
 
-            # 🔥 REMOVED PAGINATION - Return all rows for this month
+            # --- Dynamic Sorting Logic ---
+            # Map frontend keys to DB columns to prevent SQL injection & errors
+            sort_map = {
+                "IncidentLog_PRK": "IncidentLog_PRK",
+                "PenaltyAmount": "PenaltyAmount",
+                "OfflineTime": "OfflineTime",
+                "OnlineTime": "OnlineTime",
+                "OfflineMinutes": "OfflineMinutes",
+                "Camera_PRK": "Camera_PRK",
+                "nvrAlias_TXT": "nvrAlias_TXT",
+                "camName_TXT": "camName_TXT",
+                "ZoneName": "ZoneName",
+                "StreetName": "StreetName",
+                "UnitName": "UnitName"
+            }
+            
+            # Default to IncidentLog_PRK if key is invalid
+            sort_column = sort_map.get(filters.sort_key, "IncidentLog_PRK")
+            
+            # Determine direction
+            sort_direction = "DESC" if filters.sort_dir and filters.sort_dir.lower() == "desc" else "ASC"
+
             duckdb_query = f"""
                 SELECT * FROM cached_report_data
                 WHERE {combined_where_clause}
-                ORDER BY Camera_PRK
+                ORDER BY {sort_column} {sort_direction}
                 LIMIT {filters.limit} OFFSET {filters.skip};
             """
             
-            print(f"🔍 DuckDB Query for {month_start_date.strftime('%Y-%m')}:\n{duckdb_query}\n")
+            print(f"🔍 DuckDB Query ({month_start_date.strftime('%Y-%m')}):\n{duckdb_query}\n")
             
             duckdb_query_result_df = con.execute(duckdb_query).fetchdf()
 

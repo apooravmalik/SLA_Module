@@ -50,6 +50,8 @@ class DashboardFilters(BaseModel):
     date_to: Optional[datetime] = None
     skip: Optional[int] = 0
     limit: Optional[int] = 500
+    sort_key: Optional[str] = "IncidentLog_PRK" 
+    sort_dir: Optional[str] = "desc"
 
 # --- Response Schemas for Dashboard KPIs ---
 class DashboardKPIs(BaseModel):

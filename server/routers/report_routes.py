@@ -11,7 +11,7 @@ from schemas import DashboardFilters, ReportResponse, ReportRow
 from services import report_data_service
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, landscape
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 
 router = APIRouter(
@@ -36,6 +36,8 @@ def get_report_data(
     date_to: Optional[datetime] = Query(None),
     skip: int = Query(0),
     limit: int = Query(10000),
+    sort_key: Optional[str] = Query("IncidentLog_PRK"),
+    sort_dir: Optional[str] = Query("desc")
 ):
     filters = DashboardFilters(
         zone_id=zone_id,
@@ -45,6 +47,8 @@ def get_report_data(
         date_to=date_to,
         skip=skip,
         limit=limit,
+        sort_key=sort_key,
+        sort_dir=sort_dir
     )
 
     return report_data_service.get_detailed_report(db, filters)
@@ -121,7 +125,7 @@ def download_report(
         }
     )
 
-def convert_report_to_pdf(report_data: List[ReportRow]) -> io.BytesIO:
+def convert_report_to_pdf(report_data: List[ReportRow], date_from: Optional[datetime] = None, date_to: Optional[datetime] = None) -> io.BytesIO:
     """Converts a list of ReportRow Pydantic models to a PDF format using reportlab with a footer."""
     buffer = io.BytesIO()
     
@@ -149,6 +153,20 @@ def convert_report_to_pdf(report_data: List[ReportRow]) -> io.BytesIO:
 
     # Title
     elements.append(Paragraph(f"SLA Detailed Report - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Title']))
+
+    # --- NEW CODE START: Add Date Range Display ---
+    if date_from and date_to:
+        # Format dates as YYYY-MM-DD
+        d_from = date_from.strftime('%Y-%m-%d')
+        d_to = date_to.strftime('%Y-%m-%d')
+        elements.append(Paragraph(f"Filter Date Range: {d_from} to {d_to}", styles['Normal']))
+        elements.append(Spacer(1, 12))  # Add space after dates
+    elif date_from:
+        elements.append(Paragraph(f"Filter Date From: {date_from.strftime('%Y-%m-%d')}", styles['Normal']))
+        elements.append(Spacer(1, 12))
+    else:
+        elements.append(Spacer(1, 12)) # Just space if no dates
+    # --- NEW CODE END ---
 
     if not report_data:
         elements.append(Paragraph("No Data Found", styles['Normal']))
@@ -207,11 +225,11 @@ def download_report_pdf(
     filters = DashboardFilters(
         zone_id=zone_id, street_id=street_id, unit_id=unit_id,
         date_from=date_from, date_to=date_to,
-        limit=100000,
+        limit=1000000,
     )
     
     report_response = report_data_service.get_detailed_report(db, filters)
-    pdf_stream = convert_report_to_pdf(report_response.data)
+    pdf_stream = convert_report_to_pdf(report_response.data, date_from=date_from, date_to=date_to)
 
     return StreamingResponse(
         pdf_stream,
