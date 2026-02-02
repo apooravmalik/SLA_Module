@@ -1,4 +1,4 @@
-// client/src/components/MasterDataPage.jsx (FIXED for Incident Pagination)
+// client/src/components/MasterDataPage.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from './Navbar'; 
 import { FaArrowLeft, FaSpinner } from 'react-icons/fa';
@@ -7,20 +7,16 @@ import { FaArrowLeft, FaSpinner } from 'react-icons/fa';
 // Base Configuration
 // ------------------------------------------------------------------
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://172.168.1.15:8001/api'; 
-const PAGE_LIMIT = 500; // Define a fixed page size to prevent crashing
+const PAGE_LIMIT = 500; 
 
 const ENDPOINTS = {
-    // Static KPIs
     zone: `${API_BASE_URL}/master/zones`,
     street: `${API_BASE_URL}/master/streets`,
     unit: `${API_BASE_URL}/master/units`,
-    // Dynamic KPIs
     incident: `${API_BASE_URL}/master/incidents`, 
 };
 
-// Column Definitions for each Master Data Type (Updated labels and Unit columns)
 const columnDefinitions = {
-    // Static Data Columns
     zone: [
         { header: 'Constituency ID', key: 'CameraZone_PRK', width: '150px' },
         { header: 'Constituency Name', key: 'cznName_TXT' },
@@ -37,7 +33,6 @@ const columnDefinitions = {
         { header: 'Package Name', key: 'untUnitName_TXT' },
         { header: 'Other Info', key: 'untOtherInfo_MEM' }, 
     ],
-    // Dynamic Incident Columns (NEW)
     incident: [
         { header: 'Incident ID', key: 'IncidentLog_PRK', width: '100px' },
         { header: 'Date/Time', key: 'inlDateTime_DTM', width: '180px' },
@@ -58,34 +53,28 @@ const titleMap = {
     incident_closed: 'Closed Incidents', 
 };
 
-// Helper for formatting data in table (for incident time)
 const formatCellValue = (key, value) => {
     if (value === null || value === undefined) return 'N/A';
-    
     if (key === 'inlDateTime_DTM') {
-        try {
-            return new Date(value).toLocaleString();
-        } catch (e) {
-            return value.toString();
-        }
+        try { return new Date(value).toLocaleString(); } catch (e) { return value.toString(); }
     }
     return value.toString();
 };
 
 
 // ------------------------------------------------------------------
-// Table Display Component (Simple for Master Data)
+// Table Display Component
 // ------------------------------------------------------------------
 const MasterDataTable = ({ data, columns }) => {
     if (!data || data.length === 0) {
-        return <p className="text-gray-500 p-4">No master data found for current filters.</p>;
+        return <p className="text-[var(--text-muted)] p-4">No master data found for current filters.</p>;
     }
     
     return (
-        <div className="relative overflow-x-auto shadow-md sm:rounded-lg">
+        <div className="relative overflow-x-auto shadow-md sm:rounded-lg bg-[var(--bg-panel)]">
             <div className="max-h-[70vh] overflow-y-auto"> 
-                <table className="w-full text-sm text-left text-gray-500">
-                    <thead className="text-xs text-gray-700 uppercase bg-gray-50 sticky top-0 z-10">
+                <table className="w-full text-sm text-left text-[var(--text-muted)]">
+                    <thead className="text-xs text-[var(--text-main)] uppercase bg-[var(--bg-app)] sticky top-0 z-10">
                         <tr>
                             {columns.map(col => (
                                 <th key={col.key} scope="col" className="px-6 py-3" style={{ minWidth: col.width || 'auto' }}>
@@ -96,11 +85,11 @@ const MasterDataTable = ({ data, columns }) => {
                     </thead>
                     <tbody>
                         {data.map((row, rowIndex) => (
-                            <tr key={rowIndex} className="bg-white border-b hover:bg-gray-50">
+                            <tr key={rowIndex} className="bg-[var(--bg-panel)] border-b border-[var(--border-main)] hover:bg-[var(--bg-app)] transition-colors">
                                 {columns.map(col => {
                                     const displayValue = formatCellValue(col.key, row[col.key]);
                                     return (
-                                        <td key={col.key} className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">
+                                        <td key={col.key} className="px-6 py-4 font-medium text-[var(--text-main)] whitespace-nowrap">
                                             {displayValue}
                                         </td>
                                     );
@@ -118,35 +107,29 @@ const MasterDataTable = ({ data, columns }) => {
 // ------------------------------------------------------------------
 // Main MasterDataPage Component
 // ------------------------------------------------------------------
-const MasterDataPage = ({ onGoToDashboard, onLogout, masterContext }) => {
+const MasterDataPage = ({ onGoToDashboard, onLogout, masterContext, theme, toggleTheme }) => {
     const [data, setData] = useState([]);
     const [totalCount, setTotalCount] = useState(0);
-    const [loadingInitial, setLoadingInitial] = useState(true); // Renamed for clarity
-    const [loadingMore, setLoadingMore] = useState(false); // NEW state for loading next page
+    const [loadingInitial, setLoadingInitial] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [globalError, setGlobalError] = useState(null);
     
-    // NEW PAGINATION STATE
     const [skip, setSkip] = useState(0);
     const [hasMore, setHasMore] = useState(true);
 
-    // Determine the type, columns, and title from context
     const type = masterContext?.type;
-    const subtype = masterContext?.subtype; // For incident_open/closed
+    const subtype = masterContext?.subtype;
     const title = titleMap[subtype || type] || 'Master Data Details'; 
     const columns = columnDefinitions[type] || [];
     const url = ENDPOINTS[type];
-    const isPaginated = type === 'incident'; // Only incidents use pagination
+    const isPaginated = type === 'incident';
 
-    // Handler must be passed to Navbar, but filters are not used on this page
     const dummyFilterHandler = useCallback(() => {
-        console.log("Filters applied on MasterDataPage (ignored).");
+        // Master Data page doesn't use the navbar filters directly for fetching itself
     }, []);
 
-
-    // Helper to convert filters to query string for INCIDENT details
     const incidentFiltersToQueryString = useCallback((filters, statusFilter, currentSkip) => {
         const params = new URLSearchParams();
-        
         Object.entries(filters).forEach(([key, value]) => {
             if (value !== null && value !== undefined && value !== "") {
                 if (Array.isArray(value)) {
@@ -156,32 +139,29 @@ const MasterDataPage = ({ onGoToDashboard, onLogout, masterContext }) => {
                 }
             }
         });
-        
-        if (statusFilter) {
-            params.append('status_filter', String(statusFilter));
-        }
-        
-        // Add pagination parameters
+        if (statusFilter) params.append('status_filter', String(statusFilter));
         params.append('skip', String(currentSkip));
         params.append('limit', String(PAGE_LIMIT));
-
         return params.toString();
     }, []);
 
 
+    // ------------------------------------------------------------------
+    // 🔥 FIXED FETCH FUNCTION (Broken Loop Fix)
+    // ------------------------------------------------------------------
     const fetchData = useCallback(async (currentSkip, isNewQuery = true) => {
         if (!url) {
             setGlobalError(`Invalid master data type: ${type}`);
             setLoadingInitial(false);
-            setLoadingMore(false);
             return;
         }
 
-        if (!isNewQuery && !hasMore) return; 
+        // NOTE: We DO NOT check 'hasMore' here anymore. 
+        // We check it in handleLoadMore instead to avoid dependency loops.
         
         if (isNewQuery) {
             setLoadingInitial(true);
-            setData([]); // Clear data only on initial/new query
+            setData([]);
             setSkip(0);
             setHasMore(true);
         } else {
@@ -199,14 +179,11 @@ const MasterDataPage = ({ onGoToDashboard, onLogout, masterContext }) => {
         }
 
         let fullUrl = url;
-
-        // If data type is incident, construct URL with dashboard filters and pagination
         if (isPaginated) {
             const filters = masterContext?.filters || {};
             const statusFilter = masterContext?.status; 
             const queryString = incidentFiltersToQueryString(filters, statusFilter, currentSkip);
             fullUrl = `${url}?${queryString}`;
-            console.log("INCIDENT API Request URL:", fullUrl);
         }
 
         try {
@@ -222,21 +199,18 @@ const MasterDataPage = ({ onGoToDashboard, onLogout, masterContext }) => {
                 const result = await response.json();
                 
                 if (isPaginated) {
-                    // Handle paginated response (Incident data)
                     const fetchedData = result.data || [];
-                    
                     setData(prevData => isNewQuery ? fetchedData : [...prevData, ...fetchedData]);
                     setTotalCount(result.total_count || 0);
                     
-                    // Update pagination state
+                    // Update Pagination State
                     setSkip(currentSkip + fetchedData.length);
                     setHasMore(fetchedData.length === PAGE_LIMIT);
 
                 } else {
-                    // Handle static data (non-paginated)
                     setData(result.data || []);
                     setTotalCount(result.total_count || 0);
-                    setHasMore(false); // Static lists are complete in one go
+                    setHasMore(false);
                 }
             } else {
                 const errorData = await response.json().catch(() => ({}));
@@ -244,65 +218,66 @@ const MasterDataPage = ({ onGoToDashboard, onLogout, masterContext }) => {
             }
         } catch (error) {
             setGlobalError(`Network error while fetching ${title} data.`);
-            console.error('Master data fetch error:', error);
         } finally {
             setLoadingInitial(false);
             setLoadingMore(false);
         }
-    }, [url, title, type, masterContext, hasMore, isPaginated, incidentFiltersToQueryString]);
+    // 🔥 REMOVED 'hasMore' from dependency array to prevent infinite loop
+    }, [url, title, type, masterContext, isPaginated, incidentFiltersToQueryString]); 
 
+
+    // Initial Fetch Effect
     useEffect(() => {
-        // Trigger initial fetch on component mount or context change
         fetchData(0, true);
     }, [fetchData]);
 
 
-    // Handler for the Load More button
+    // 🔥 UPDATED LOAD MORE HANDLER
     const handleLoadMore = () => {
-        fetchData(skip, false);
+        if (hasMore && !loadingMore) {
+            fetchData(skip, false);
+        }
     };
 
 
     return (
-        <div className="min-h-screen bg-gray-50 p-6 font-poppins">
+        <div className="min-h-screen bg-[var(--bg-app)] p-6 font-poppins transition-colors duration-300">
             
             <h1 className="text-3xl font-extrabold text-[#00BFFF] mb-4 text-center">
                 SLA MODULE - PKG 2 - MASTER DATA
             </h1>
 
-            {/* Navbar is rendered but filters are inactive on this page */}
-            <Navbar onApplyFilters={dummyFilterHandler} onLogout={onLogout} currentFilters={{}} />
+            <Navbar 
+                onApplyFilters={dummyFilterHandler} 
+                onLogout={onLogout} 
+                currentFilters={{}} 
+                theme={theme}
+                toggleTheme={toggleTheme}
+            />
 
-            <div className="mt-6 flex justify-between items-center pb-4 border-b">
+            <div className="mt-6 flex justify-between items-center pb-4 border-b border-[var(--border-main)]">
                 <div className="flex items-center space-x-4">
-                    
-                    {/* Back to Dashboard Button */}
                     <button 
                         onClick={onGoToDashboard} 
-                        className="py-2 px-4 border border-gray-300 rounded-lg shadow-md text-gray-700 font-semibold bg-white hover:bg-gray-100 transition duration-150 flex items-center space-x-2"
+                        className="py-2 px-4 border border-[var(--border-main)] rounded-lg shadow-md text-[var(--text-main)] font-semibold bg-[var(--bg-panel)] hover:bg-[var(--bg-app)] transition duration-150 flex items-center space-x-2"
                     >
                         <FaArrowLeft />
                         <span>Back to Dashboard</span>
                     </button>
-                    
-                    <h2 className="text-xl font-bold text-gray-700">{title} Details</h2>
+                    <h2 className="text-xl font-bold text-[var(--text-main)]">{title} Details</h2>
                 </div>
-                
-                {/* Total Rows Indicator */}
-                <span className="text-md text-gray-600">
+                <span className="text-md text-[var(--text-muted)]">
                     Total Records: {loadingInitial ? '...' : totalCount.toLocaleString()}
                 </span>
             </div>
             
-            {/* Error Display */}
             {globalError && (
-                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative my-4" role="alert">
+                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative my-4">
                     <strong className="font-bold">Error: </strong>
                     <span className="block sm:inline">{globalError}</span>
                 </div>
             )}
 
-            {/* Table or Loading Indicator */}
             <div className="mt-6">
                 {loadingInitial ? (
                     <div className="text-center py-12 text-[#00BFFF]">
@@ -313,7 +288,6 @@ const MasterDataPage = ({ onGoToDashboard, onLogout, masterContext }) => {
                     <>
                         <MasterDataTable data={data} columns={columns} />
                         
-                        {/* Pagination Controls for Incidents */}
                         {isPaginated && (
                             <div className="mt-4 text-center">
                                 {loadingMore && (
@@ -325,14 +299,13 @@ const MasterDataPage = ({ onGoToDashboard, onLogout, masterContext }) => {
                                 {hasMore && !loadingMore && (
                                     <button
                                         onClick={handleLoadMore}
-                                        disabled={loadingMore}
                                         className="py-2 px-6 bg-[#00BFFF] text-white rounded-lg hover:bg-sky-600 transition duration-150"
                                     >
                                         Load More ({Math.min(PAGE_LIMIT, totalCount - skip)})
                                     </button>
                                 )}
                                 {!hasMore && data.length > 0 && (
-                                    <p className="text-gray-500 text-sm">
+                                    <p className="text-[var(--text-muted)] text-sm">
                                         End of list. ({data.length} of {totalCount.toLocaleString()} displayed)
                                     </p>
                                 )}

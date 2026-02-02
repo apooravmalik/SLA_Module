@@ -510,7 +510,7 @@ const ReportPage = ({ onGoToDashboard, onLogout, reportContext, theme, toggleThe
         { header: "RWA", key: "StreetName" },
         { header: "PKG", key: "UnitName" },
         { header: "Incident Log PRK", key: "IncidentLog_PRK", width: "130px" },
-        { header: "Category", key: "WaiverCategory", width: "150px", isCustom: true }, 
+        // { header: "Category", key: "WaiverCategory", width: "150px", isCustom: true }, 
         { header: "Offline Time", key: "OfflineTime", width: "150px" },
         { header: "Online Time", key: "OnlineTime", width: "150px" },
         { header: "Offline Minutes", key: "OfflineMinutes" },

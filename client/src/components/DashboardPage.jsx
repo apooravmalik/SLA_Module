@@ -3,14 +3,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from './Navbar'; 
 import { FaMapMarkerAlt, FaRoad, FaBuilding, FaExclamationTriangle, FaCheckCircle, FaMoneyBill } from 'react-icons/fa';
 
+// Use relative path so Vite Proxy forwards it correctly (or fallback to env/default)
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://172.168.1.15:8001/api'; 
 const DASHBOARD_URL = `${API_BASE_URL}/dashboard/`;
 
 // --- KPICard Component ---
 const KPICard = ({ title, value, icon: Icon, isPenalty = false, isStatic = false, onClick, context }) => {
     
-    // Logic: If penalty, keep white bg (or specific penalty bg). 
-    // Otherwise use global panel bg.
     const bgClass = isPenalty ? 'bg-[var(--bg-panel)]' : 'bg-[var(--bg-panel)]';
     const borderClass = isPenalty ? 'border-orange-400' : 'border-[var(--border-main)]';
     const textClass = isPenalty ? 'text-orange-600' : 'text-[#00BFFF]';
@@ -45,7 +44,19 @@ const KPICard = ({ title, value, icon: Icon, isPenalty = false, isStatic = false
 
 // --- DashboardPage Component ---
 const DashboardPage = ({ onLogout, onGoToReport, onGoToMasterData, theme, toggleTheme }) => { 
-    const [filters, setFilters] = useState({});
+    
+    // 1. INITIALIZE STATE FROM LOCAL STORAGE (Persistence)
+    // This ensures filters are loaded immediately on refresh
+    const [filters, setFilters] = useState(() => {
+        try {
+            const savedFilters = localStorage.getItem('dashboard_filters');
+            return savedFilters ? JSON.parse(savedFilters) : {};
+        } catch (e) {
+            console.error("Error parsing saved filters:", e);
+            return {};
+        }
+    });
+
     const [kpiData, setKpiData] = useState({ 
         total_zones: 0, 
         total_streets: 0, 
@@ -58,6 +69,7 @@ const DashboardPage = ({ onLogout, onGoToReport, onGoToMasterData, theme, toggle
     const [loading, setLoading] = useState(false);
     const [globalError, setGlobalError] = useState(null);
 
+    // Helper to convert complex filter object to query string
     const filtersToQueryString = (filters) => {
         const params = new URLSearchParams();
         Object.entries(filters).forEach(([key, value]) => {
@@ -115,14 +127,19 @@ const DashboardPage = ({ onLogout, onGoToReport, onGoToMasterData, theme, toggle
         }
     }, []);
 
+    // 2. UPDATE HANDLER: Save to LocalStorage whenever "Go" is clicked
     const handleApplyFilters = useCallback((newFilters) => {
         setFilters(newFilters);
+        localStorage.setItem('dashboard_filters', JSON.stringify(newFilters));
         fetchDashboardData(newFilters);
     }, [fetchDashboardData]);
 
+    // 3. EFFECT: Fetch data on mount using the loaded filters
     useEffect(() => {
         fetchDashboardData(filters);
-    }, [fetchDashboardData]);
+    }, [fetchDashboardData]); 
+    // Note: We don't put 'filters' in dependency array to avoid double-fetch on mount,
+    // because useState lazy init already sets the initial value correctly.
 
     return (
         <div className="min-h-screen bg-[var(--bg-app)] p-6 font-poppins transition-colors duration-300">
@@ -131,6 +148,7 @@ const DashboardPage = ({ onLogout, onGoToReport, onGoToMasterData, theme, toggle
                 SLA MODULE - PKG 2 - DASHBOARD
             </h1>
             
+            {/* Navbar receives the loaded filters to auto-populate dropdowns */}
             <Navbar 
                 onApplyFilters={handleApplyFilters} 
                 onLogout={onLogout} 
